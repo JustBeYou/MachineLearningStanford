@@ -7,3 +7,5 @@ Notes
     - page 73 - kernels
     - page 78 - feature extraction steps
 * https://kapernikov.com/tutorial-image-classification-with-scikit-learn/
+* https://www.csie.ntu.edu.tw/~cjlin/papers/guide/guide.pdf
+* https://arxiv.org/pdf/1406.2419.pdf
