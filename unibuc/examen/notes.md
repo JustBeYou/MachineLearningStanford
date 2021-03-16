@@ -1,6 +1,8 @@
 Notes
 ===
 
+* should fix loading bug. last entry is missing!
+
 ## References
 * [SVM-MK](https://link.springer.com/content/pdf/10.1007%2F978-3-642-32891-6_11.pdf) - SMV with composite kernel function: RBF + poly
 * [Kernel methods and image classification](https://profs.info.uaic.ro/~dcristea/cursuri/IA/2018-2019/hab_thesis.pdf):
