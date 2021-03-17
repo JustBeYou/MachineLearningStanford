@@ -11,3 +11,4 @@ Notes
 * https://kapernikov.com/tutorial-image-classification-with-scikit-learn/
 * https://www.csie.ntu.edu.tw/~cjlin/papers/guide/guide.pdf
 * https://arxiv.org/pdf/1406.2419.pdf
+* https://hal.inria.fr/inria-00548512/document
