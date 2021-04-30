@@ -1,19 +1,11 @@
 from abc import ABC, abstractmethod
 from heapq import heappop, heappush
-from typing import Optional, Callable, List, Iterable
+from typing import Optional, Callable, List, Iterable, Set, cast
 from copy import copy
 
 class StateNode(ABC):
     def __init__(self, state, parent: Optional['StateNode'] = None,
-                 cost=0, heuristic_cost=0,
-                 arc_cost_fn: Optional[Callable] = None,
-                 heuristic_fn: Optional[Callable] = None):
-        
-        if arc_cost_fn is None:
-            arc_cost_fn = StateNode.__default_arc_cost
-
-        if heuristic_fn is None:
-            heuristic_fn = StateNode.__default_heuristic
+                 cost=0, heuristic_cost=0):
 
         self.state = state
         self.parent = parent
@@ -21,19 +13,14 @@ class StateNode(ABC):
         self.heuristic_cost = heuristic_cost
         self.final_cost = self.cost + self.heuristic_cost
 
-        self.arc_cost_fn = arc_cost_fn
-        self.heuristic_fn = heuristic_fn
-
     @abstractmethod
     def next_states(self, *args, **kwargs) -> Iterable:
         raise NotImplementedError
 
-    @staticmethod
-    def __default_arc_cost(current_state = None, next_state = None):
+    def arc_cost_fn(self, *args, **kwargs):
         return 1
 
-    @staticmethod
-    def __default_heuristic(*args, **kwargs):
+    def heuristic_fn(self, *args, **kwargs):
         return 0
 
     def __repr__(self):
@@ -43,6 +30,16 @@ class Comparable(ABC):
     @abstractmethod
     def __lt__(self, value):
         raise NotImplementedError
+
+class Hashable(ABC):
+    @abstractmethod
+    def hexdigest_internal(self):
+        raise NotImplementedError
+
+    def hexdigest(self):
+        if not hasattr(self, 'cached_hash'):
+            self.cached_hash = self.hexdigest_internal()
+        return self.cached_hash
 
 class PathIterator:
     NODE_MODE = lambda node: node
@@ -63,15 +60,28 @@ class PathIterator:
         raise StopIteration
 
 class BreadthFirstTemplate(ABC):
-    def traverse(self, root: StateNode, ordered = False, *args, **kwargs) -> list:
+    def traverse(self, root: StateNode, ordered=False, open_closed=False, *args, **kwargs) -> tuple:
         if ordered and not isinstance(root, Comparable):
             raise Exception(f"{root.__class__.__name__} must implement Comparable")
+        if open_closed and not isinstance(root, Hashable):
+            raise Exception(f"{root.__class__.__name__} must implement Hashable")
 
         all_results: list = []
         queue: Queue = PriorityQueue([root]) if ordered else SimpleQueue([root])
+        hashes: Set[str] = set()
+        statistics = {
+            'steps': 0,
+            'best_cost': -1,
+        }
 
         while queue.size():
+            statistics['steps'] += 1
+
             current_node: StateNode = queue.pop()
+            if open_closed and cast(Hashable, current_node).hexdigest() in hashes:
+                continue
+            elif open_closed:
+                hashes.add(cast(Hashable, current_node).hexdigest())
 
             if self.check_solution(current_node, *args, **kwargs):
                 result = self.compute_solution(current_node, *args, **kwargs)
@@ -80,9 +90,17 @@ class BreadthFirstTemplate(ABC):
                 if self.should_exit(all_results, *args, **kwargs):
                     break
             
-            queue.extend(current_node.next_states(*args, **kwargs))
+            successors = current_node.next_states(*args, **kwargs)
+            queue.extend(
+                filter(
+                    lambda x: cast(Hashable, x).hexdigest() not in hashes, 
+                    successors) if open_closed else successors
+            )
 
-        return all_results
+        if len(all_results):
+            statistics['best_cost'] = all_results[0][-1].cost
+
+        return (all_results, statistics)
 
     @abstractmethod
     def check_solution(self, node: StateNode, *args, **kwargs) -> bool:

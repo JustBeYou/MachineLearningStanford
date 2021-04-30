@@ -1,5 +1,6 @@
-from searching import BreadthFirstTemplate, StateNode, PathIterator, Comparable
+from searching import BreadthFirstTemplate, StateNode, PathIterator, Comparable, Hashable
 from copy import deepcopy
+from hashlib import md5
 
 def main():
     initial_state, final_states = load_from_file("input.txt")
@@ -17,18 +18,32 @@ def main():
     solver = BFSolver(final_states, 1)
     
 
-    solution = solver.traverse(root)[0]
-    print("One solution using BFS")
-    for i, step in enumerate(solution[1:]):
+    solutions, statistics = solver.traverse(root)
+    print(f"One solution using BFS ({statistics['steps']} steps with cost {statistics['best_cost']})")
+    for i, step in enumerate(solutions[0][1:]):
         print(f"Move #{i+1}")
-        print_stacks(step)
+        print_stacks(step.state)
         print()
 
-    solution = solver.traverse(root, ordered=True)[0]
-    print("One solution using UCS")
-    for i, step in enumerate(solution[1:]):
+    solutions, statistics =  solver.traverse(root, open_closed=True)
+    print(f"One solution using BFS (open-closed) ({statistics['steps']} steps with cost {statistics['best_cost']})")
+    for i, step in enumerate(solutions[0][1:]):
         print(f"Move #{i+1}")
-        print_stacks(step)
+        print_stacks(step.state)
+        print()
+
+    solutions, statistics =  solver.traverse(root, ordered=True)
+    print(f"One solution using UCS ({statistics['steps']} steps with cost {statistics['best_cost']})")
+    for i, step in enumerate(solutions[0][1:]):
+        print(f"Move #{i+1}")
+        print_stacks(step.state)
+        print()
+
+    solutions, statistics =  solver.traverse(root, ordered=True, open_closed=True)
+    print(f"One solution using UCS (open-closed) ({statistics['steps']} steps with cost {statistics['best_cost']})")
+    for i, step in enumerate(solutions[0][1:]):
+        print(f"Move #{i+1}")
+        print_stacks(step.state)
         print()
 
 class BFSolver(BreadthFirstTemplate):
@@ -41,12 +56,12 @@ class BFSolver(BreadthFirstTemplate):
         return node.state in self.final_states
 
     def compute_solution(self, node, *args, **kwargs):
-        return list(PathIterator(node, mode = PathIterator.STATE_ONLY_MODE))[::-1]
+        return list(PathIterator(node, mode = PathIterator.NODE_MODE))[::-1]
 
     def should_exit(self, results, *args, **kwargs):
         return len(results) >= self.solutions_count
 
-class StacksStateNode(StateNode, Comparable):
+class StacksStateNode(StateNode, Comparable, Hashable):
     def next_states(self, *args, **kwargs):
         stacks = self.state
         stacks_size = len(stacks)
@@ -66,14 +81,20 @@ class StacksStateNode(StateNode, Comparable):
                 new_stacks[j].append(block)
 
                 if new_stacks not in PathIterator(self, mode = PathIterator.STATE_ONLY_MODE):
-                    new_cost = self.cost + self.arc_cost_fn()
+                    new_cost = self.cost + self.arc_cost_fn(block=block)
                     yield StacksStateNode(new_stacks, 
                         parent=self, 
-                        cost=new_cost, heuristic_cost=0, 
-                        arc_cost_fn=self.arc_cost_fn)
+                        cost=new_cost, heuristic_cost=0)
+
+    def arc_cost_fn(self, *args, **kwargs):
+        return ord(kwargs['block']) - ord('a') + 1
 
     def __lt__(self, other):
         return self.cost < other.cost
+
+    def hexdigest_internal(self):
+        s = '|'.join([''.join(x) if len(x) else '#' for x in self.state])
+        return s
 
 def load_from_file(name):
     content = open(name).read().split('stari_finale')
