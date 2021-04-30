@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
 from heapq import heappop, heappush
-from typing import Optional, Callable, List, Iterable, Set, cast
+from typing import Optional, Callable, List, Iterable, Set, Generic, TypeVar, cast
 from copy import copy
 
-class StateNode(ABC):
-    def __init__(self, state, parent: Optional['StateNode'] = None,
+T = TypeVar('T')
+class StateNode(ABC, Generic[T]):
+    def __init__(self, state: T, parent: Optional['StateNode'] = None,
                  cost=0, heuristic_cost=0):
 
         self.state = state
@@ -71,7 +72,6 @@ class BreadthFirstTemplate(ABC):
         hashes: Set[str] = set()
         statistics = {
             'steps': 0,
-            'best_cost': -1,
         }
 
         while queue.size():
@@ -97,9 +97,6 @@ class BreadthFirstTemplate(ABC):
                     successors) if open_closed else successors
             )
 
-        if len(all_results):
-            statistics['best_cost'] = all_results[0][-1].cost
-
         return (all_results, statistics)
 
     @abstractmethod
@@ -114,35 +111,35 @@ class BreadthFirstTemplate(ABC):
     def should_exit(self, results, *args, **kwargs) -> bool:
         raise NotImplementedError
 
-class Queue(ABC):
-    def __init__(self, initial = []):
+class Queue(ABC, Generic[T]):
+    def __init__(self, initial: List[T] = []):
         self.q = copy(initial)
 
-    def size(self):
+    def size(self) -> int:
         return len(self.q)
 
-    def extend(self, items):
+    def extend(self, items: Iterable[T]):
         for item in items:
             self.push(item)
 
     @abstractmethod
-    def push(self, item):
+    def push(self, item: T):
         raise NotImplementedError
 
     @abstractmethod
-    def pop(self):
+    def pop(self) -> T:
         raise NotImplementedError
 
 class SimpleQueue(Queue):
-    def push(self, item):
+    def push(self, item: T):
         self.q.append(item)
 
-    def pop(self):
+    def pop(self) -> T:
         return self.q.pop(0)
 
 class PriorityQueue(Queue):
-    def push(self, item):
+    def push(self, item: T):
         heappush(self.q, item)
 
-    def pop(self):
+    def pop(self) -> T:
         return heappop(self.q)

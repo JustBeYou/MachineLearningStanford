@@ -14,10 +14,9 @@ def main():
         print_stacks(state)
         print()
 
-    root = StacksStateNode(initial_state)
+    root: StacksStateNode[list] = StacksStateNode(initial_state)
     solver = BFSolver(final_states, 1)
     
-
     solutions, statistics = solver.traverse(root)
     print(f"One solution using BFS ({statistics['steps']} steps with cost {statistics['best_cost']})")
     for i, step in enumerate(solutions[0][1:]):
