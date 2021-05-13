@@ -1,0 +1,136 @@
+*** BFS ***
+Total time elapsed 0.09708s
+Max in memory / Total generated = 15092 / 16882 ratio = 0.894
+Solution 0
+Length 5 Time 0.09702s
+Lock [1, 1, 1, 1, 1, 1, 1] using key None (cost 0, h 0, f 0)
+Lock [2, 0, 0, 0, 1, 2, 3] using key [1, -1, -1, -1, 0, 1, 1] (cost 3, h 0, f 3)
+Lock [1, 0, 0, 0, 0, 1, 2] using key [-1, 0, 0, 0, -1, -1, -1] (cost 7, h 0, f 7)
+Lock [0, 0, 0, 0, 0, 0, 1] using key [-1, 0, 0, 0, -1, -1, -1] (cost 10, h 0, f 10)
+Lock [0, 0, 0, 0, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 11, h 0, f 11)
+
+
+*** UCS ***
+Total time elapsed 10.01783s
+Max in memory / Total generated = 1133898 / 1299747 ratio = 0.8724
+No solutions
+
+*** A* using Naive heuristic ***
+Total time elapsed 10.00772s
+Max in memory / Total generated = 1145474 / 1312981 ratio = 0.8724
+No solutions
+
+*** A* open-closed using Naive heuristic ***
+Total time elapsed 5.32946s
+Max in memory / Total generated = 177088 / 406537 ratio = 0.4356
+Solution 0
+Length 6 Time 5.32939s
+Lock [1, 1, 1, 1, 1, 1, 1] using key None (cost 0, h 1, f 1)
+Lock [0, 1, 1, 1, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 4, h 1, f 5)
+Lock [0, 0, 1, 1, 0, 0, 0] using key [0, -1, 0, 0, 0, 0, 0] (cost 5, h 1, f 6)
+Lock [1, 0, 0, 0, 0, 1, 2] using key [1, -1, -1, -1, 0, 1, 1] (cost 7, h 1, f 8)
+Lock [0, 0, 0, 0, 0, 0, 1] using key [-1, 0, 0, 0, -1, -1, -1] (cost 10, h 1, f 11)
+Lock [0, 0, 0, 0, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 11, h 0, f 11)
+
+
+*** IDA* using Naive heuristic ***
+Total time elapsed 10.00464s
+Max in memory / Total generated = 16 / 2721742 ratio = 0.0
+No solutions
+
+*** A* using Heuristic 1 ***
+Total time elapsed 0.26911s
+Max in memory / Total generated = 7490 / 8546 ratio = 0.8764
+Solution 0
+Length 5 Time 0.26904s
+Lock [1, 1, 1, 1, 1, 1, 1] using key None (cost 0, h 7, f 7)
+Lock [2, 0, 0, 0, 1, 2, 3] using key [1, -1, -1, -1, 0, 1, 1] (cost 3, h 8, f 11)
+Lock [1, 0, 0, 0, 0, 1, 2] using key [-1, 0, 0, 0, -1, -1, -1] (cost 7, h 4, f 11)
+Lock [0, 0, 0, 0, 0, 0, 1] using key [-1, 0, 0, 0, -1, -1, -1] (cost 10, h 1, f 11)
+Lock [0, 0, 0, 0, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 11, h 0, f 11)
+
+
+*** A* open-closed using Heuristic 1 ***
+Total time elapsed 0.08752s
+Max in memory / Total generated = 635 / 895 ratio = 0.7095
+Solution 0
+Length 6 Time 0.08746s
+Lock [1, 1, 1, 1, 1, 1, 1] using key None (cost 0, h 7, f 7)
+Lock [1, 0, 1, 1, 1, 1, 1] using key [0, -1, 0, 0, 0, 0, 0] (cost 1, h 6, f 7)
+Lock [0, 0, 1, 1, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 5, h 2, f 7)
+Lock [1, 0, 0, 0, 0, 1, 2] using key [1, -1, -1, -1, 0, 1, 1] (cost 7, h 4, f 11)
+Lock [0, 0, 0, 0, 0, 0, 1] using key [-1, 0, 0, 0, -1, -1, -1] (cost 10, h 1, f 11)
+Lock [0, 0, 0, 0, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 11, h 0, f 11)
+
+
+*** IDA* using Heuristic 1 ***
+Total time elapsed 0.17335s
+Max in memory / Total generated = 9 / 9114 ratio = 0.001
+Solution 0
+Length 5 Time 0.17333s
+Lock [1, 1, 1, 1, 1, 1, 1] using key None (cost 0, h 7, f 7)
+Lock [2, 0, 0, 0, 1, 2, 3] using key [1, -1, -1, -1, 0, 1, 1] (cost 3, h 8, f 11)
+Lock [1, 0, 0, 0, 0, 1, 2] using key [-1, 0, 0, 0, -1, -1, -1] (cost 7, h 4, f 11)
+Lock [0, 0, 0, 0, 0, 0, 1] using key [-1, 0, 0, 0, -1, -1, -1] (cost 10, h 1, f 11)
+Lock [0, 0, 0, 0, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 11, h 0, f 11)
+
+
+*** A* using Heuristic 2 ***
+Total time elapsed 0.296s
+Max in memory / Total generated = 7490 / 8546 ratio = 0.8764
+Solution 0
+Length 5 Time 0.29594s
+Lock [1, 1, 1, 1, 1, 1, 1] using key None (cost 0, h 7, f 7)
+Lock [2, 0, 0, 0, 1, 2, 3] using key [1, -1, -1, -1, 0, 1, 1] (cost 3, h 8, f 11)
+Lock [1, 0, 0, 0, 0, 1, 2] using key [-1, 0, 0, 0, -1, -1, -1] (cost 7, h 4, f 11)
+Lock [0, 0, 0, 0, 0, 0, 1] using key [-1, 0, 0, 0, -1, -1, -1] (cost 10, h 1, f 11)
+Lock [0, 0, 0, 0, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 11, h 0, f 11)
+
+
+*** A* open-closed using Heuristic 2 ***
+Total time elapsed 0.08714s
+Max in memory / Total generated = 635 / 895 ratio = 0.7095
+Solution 0
+Length 6 Time 0.08708s
+Lock [1, 1, 1, 1, 1, 1, 1] using key None (cost 0, h 7, f 7)
+Lock [1, 0, 1, 1, 1, 1, 1] using key [0, -1, 0, 0, 0, 0, 0] (cost 1, h 6, f 7)
+Lock [0, 0, 1, 1, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 5, h 2, f 7)
+Lock [1, 0, 0, 0, 0, 1, 2] using key [1, -1, -1, -1, 0, 1, 1] (cost 7, h 4, f 11)
+Lock [0, 0, 0, 0, 0, 0, 1] using key [-1, 0, 0, 0, -1, -1, -1] (cost 10, h 1, f 11)
+Lock [0, 0, 0, 0, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 11, h 0, f 11)
+
+
+*** IDA* using Heuristic 2 ***
+Total time elapsed 0.18492s
+Max in memory / Total generated = 9 / 9114 ratio = 0.001
+Solution 0
+Length 5 Time 0.1849s
+Lock [1, 1, 1, 1, 1, 1, 1] using key None (cost 0, h 7, f 7)
+Lock [2, 0, 0, 0, 1, 2, 3] using key [1, -1, -1, -1, 0, 1, 1] (cost 3, h 8, f 11)
+Lock [1, 0, 0, 0, 0, 1, 2] using key [-1, 0, 0, 0, -1, -1, -1] (cost 7, h 4, f 11)
+Lock [0, 0, 0, 0, 0, 0, 1] using key [-1, 0, 0, 0, -1, -1, -1] (cost 10, h 1, f 11)
+Lock [0, 0, 0, 0, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 11, h 0, f 11)
+
+
+*** A* using Inadmissible heuristic ***
+Total time elapsed 10.0109s
+Max in memory / Total generated = 1143584 / 1311029 ratio = 0.8723
+No solutions
+
+*** A* open-closed using Inadmissible heuristic ***
+Total time elapsed 6.64923s
+Max in memory / Total generated = 194879 / 482151 ratio = 0.4042
+Solution 0
+Length 5 Time 6.64917s
+Lock [1, 1, 1, 1, 1, 1, 1] using key None (cost 0, h 1, f 1)
+Lock [2, 0, 0, 0, 1, 2, 3] using key [1, -1, -1, -1, 0, 1, 1] (cost 3, h 0, f 3)
+Lock [1, 0, 0, 0, 0, 1, 2] using key [-1, 0, 0, 0, -1, -1, -1] (cost 7, h 0, f 7)
+Lock [0, 0, 0, 0, 0, 0, 1] using key [-1, 0, 0, 0, -1, -1, -1] (cost 10, h 0, f 10)
+Lock [0, 0, 0, 0, 0, 0, 0] using key [-1, 0, 0, 0, -1, -1, -1] (cost 11, h 0, f 11)
+
+
+*** IDA* using Inadmissible heuristic ***
+Total time elapsed 10.00698s
+Max in memory / Total generated = 16 / 2453392 ratio = 0.0
+No solutions
+

@@ -1,0 +1,2 @@
+Invalid input
+Self-referencing trick
