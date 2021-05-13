@@ -1,4 +1,4 @@
-from searching import BreadthFirstTemplate, StateNode, PathIterator, Comparable, Hashable
+from searching import SearchingTemplate, StateNode, PathIterator, Comparable, Hashable
 from copy import deepcopy
 from hashlib import md5
 
@@ -17,35 +17,35 @@ def main():
     root: StacksStateNode[list] = StacksStateNode(initial_state)
     solver = BFSolver(final_states, 1)
     
-    solutions, statistics = solver.traverse(root)
+    solutions, statistics = solver.__bfs_traverse(root)
     print(f"One solution using BFS ({statistics['steps']} steps with cost {statistics['best_cost']})")
     for i, step in enumerate(solutions[0][1:]):
         print(f"Move #{i+1}")
         print_stacks(step.state)
         print()
 
-    solutions, statistics =  solver.traverse(root, open_closed=True)
+    solutions, statistics =  solver.__bfs_traverse(root, open_closed=True)
     print(f"One solution using BFS (open-closed) ({statistics['steps']} steps with cost {statistics['best_cost']})")
     for i, step in enumerate(solutions[0][1:]):
         print(f"Move #{i+1}")
         print_stacks(step.state)
         print()
 
-    solutions, statistics =  solver.traverse(root, ordered=True)
+    solutions, statistics =  solver.__bfs_traverse(root, ordered=True)
     print(f"One solution using UCS ({statistics['steps']} steps with cost {statistics['best_cost']})")
     for i, step in enumerate(solutions[0][1:]):
         print(f"Move #{i+1}")
         print_stacks(step.state)
         print()
 
-    solutions, statistics =  solver.traverse(root, ordered=True, open_closed=True)
+    solutions, statistics =  solver.__bfs_traverse(root, ordered=True, open_closed=True)
     print(f"One solution using UCS (open-closed) ({statistics['steps']} steps with cost {statistics['best_cost']})")
     for i, step in enumerate(solutions[0][1:]):
         print(f"Move #{i+1}")
         print_stacks(step.state)
         print()
 
-class BFSolver(BreadthFirstTemplate):
+class BFSolver(SearchingTemplate):
     def __init__(self, final_states, solutions_count, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.final_states = final_states
