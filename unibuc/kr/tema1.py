@@ -5,6 +5,11 @@ from hashlib import md5
 from sys import argv
 from os import path, listdir
 
+"""
+Regex pentru tabele:
+\*\*\* ([\w\s\*\-]+) using (Heuristic \d) \*\*\*\nTotal time elapsed ([\d\.]+s)\nMax in memory \/ Total generated = (\d+) \/ (\d+) ratio = ([\d\.]+)
+"""
+
 def main():
     if len(argv) < 5:
         print (f"Usage: {argv[0]} <solutions count> <timeout> <input directory> <output directory>")
@@ -20,6 +25,17 @@ def main():
         solve_for_input(nsol, timeout, filename, input_dir, output_dir)  
 
 def solve_for_input(nsol, timeout, filename, input_dir, outdir):
+    """Wrapper for solving a specified input test case.
+    Not very clean, but it works :P
+
+    Args:
+        nsol (int): How many solutions should be computed.
+        timeout (int): How many seconds should allow each algorithm to run.
+        filename (str): Input filename.
+        input_dir (str): Input directory.
+        outdir (str): Output directory.
+    """
+
     f = open(path.join(outdir, filename), "w")
 
     try:
@@ -48,13 +64,22 @@ def solve_for_input(nsol, timeout, filename, input_dir, outdir):
     so, st = s.ucs(root)
     print_solutions("UCS", so, st, f=f)
 
-    nodes = [HNaiveNode, H1Node, H2Node, HBadNode]
+    nodes = [HNaiveNode, H1Node, H2Node, H3Node, HBadNode]
     for node in nodes:
         solve_with_heur(node, initial_state, s, f)
 
     f.close()
 
 def solve_with_heur(node_type, initial_state, s, f):
+    """Wrapper for solving and printing heuristic algorithms.
+
+    Args:
+        node_type (class): Node type specific to the used heuristic.
+        initial_state (node_type): Initial state.
+        s (Solver): The solver.
+        f (file): Output file.
+    """
+
     root = node_type(initial_state, None)
     so, st = s.a_star(root)
     print_solutions(f"A* using {node_type.title}", so, st, f=f)
@@ -66,6 +91,15 @@ def solve_with_heur(node_type, initial_state, s, f):
     print_solutions(f"IDA* using {node_type.title}", so, st, f=f)
 
 def print_solutions(title, solutions, statistics, f=None):
+    """Pretty print for solutions.
+
+    Args:
+        title (str): Title of the algorithm.
+        solutions (list): The actual solutions.
+        statistics (dict): A dictionary with statistics.
+        f (file, optional): Output file. Defaults to None.
+    """
+
     custom_print (f"*** {title} ***", f=f)
     custom_print (f"Total time elapsed {statistics['time']}s", f=f)
     ratio = round(statistics['max_in_memory'] / statistics['total_states'], 4)
@@ -85,6 +119,8 @@ def custom_print(s="", f=None):
     print(s, file=f)
 
 def load_from_file(fname):
+    """Load input file into memory.
+    """
     content = open(fname).readlines()
     
     K = int(content[0].strip())
@@ -100,12 +136,13 @@ def load_from_file(fname):
     keys = [Key(content[j].strip(), K) for j in range(i, len(content))]
     lock = Lock(N, tricks)
 
+    # Validate the input
     assert all(map(lambda key: len(key.value) == N, keys)), "Keys have invalid length"
     assert all(map(lambda i: tricks[i] != i, tricks)), "Self-referencing trick"
-    assert min(tricks.keys()) >= 0, "Trick out of bounds (key < 0)"
-    assert max(tricks.keys()) < N, "Trick out of bounds (key >= N)"
-    assert min(tricks.values()) >= 0, "Trick out of bounds (value < 0)"
-    assert max(tricks.values()) < N, "Trick out of bounds (value >= N)"
+    assert min(tricks.keys(), default=0) >= 0, "Trick out of bounds (key < 0)"
+    assert max(tricks.keys(), default=0) < N, "Trick out of bounds (key >= N)"
+    assert min(tricks.values(), default=0) >= 0, "Trick out of bounds (value < 0)"
+    assert max(tricks.values(), default=0) < N, "Trick out of bounds (value >= N)"
 
     return N, K, lock, keys
 
@@ -128,6 +165,16 @@ def perm_has_cycles(g, N):
     return False
 
 class Solver(SearchingTemplate):
+    """Solver implementation for my problem. (locks and keys)
+    
+    - There is no initial solution if the tricks are circular.
+    - The solution state is the lock having all positions unlocked.
+    - The exit condition is finding enough solutions.
+
+    Attributes:
+        solutions_count (int): The number of solutions we want to find.
+    """
+
     def __init__(self, solutions_count, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.solutions_count = solutions_count
@@ -146,7 +193,29 @@ class Solver(SearchingTemplate):
         return len(results) >= self.solutions_count
 
 class Node(StateNode, Comparable, Hashable):
+    """State node for locks and keys.
+
+    Structure of state:
+        - keys: list of all available keys and their usage counts
+        - lock: representation of lock positions and their tricks
+        - last_used: the key used to compute this state
+    """
+
     def next_states(self, *args, **kwargs):
+        """Computes all possible states by trying all keys.
+
+        Yields:
+            Iterable: Generator of Node.
+        """
+
+        # check if the current state could not lead to a solution
+        unlockable = [v == 0 for v in self.state['lock'].value]
+        for key in self.state['keys']:
+            for i, v in enumerate(key.value):
+                unlockable[i] = unlockable[i] or v < 0
+        if not all(unlockable):
+            return
+
         for i, key in enumerate(self.state['keys']):
             # copy all references
             new_keys = copy(self.state['keys'])
@@ -232,6 +301,12 @@ class H2Node(HNode):
                 ) else 0)
         return tricks_cost
 
+class H3Node(HNode):
+    title = "Heuristic 3"
+
+    def heuristic_fn(self, *args, **kwargs):
+        return sum([1 for v in self.state['lock'].value if v > 0])
+
 class HBadNode(HNode):
     title = "Inadmissible heuristic"
 
@@ -242,6 +317,16 @@ class HBadNode(HNode):
         return tricks_cost
 
 class Lock:
+    """Lock representation.
+    It is encoded as a list of integers. If a value v at some position
+    is:
+        - v > 0 then the position is locked
+        - v == 0 then the position is unlocked
+        - v can't be < 0
+
+    The initial state is the lock having all positions == 1.
+    """
+
     def __init__(self, n, tricks):
         self.value = [1 for i in range(n)]
         self.tricks = tricks
@@ -256,6 +341,15 @@ class Lock:
         return f"Lock {self.value}"
 
 class Key:
+    """Key representation.
+    Same encoding as for the lock with one exception: a value
+    can be < 0 and it means that it will unlock that position
+    of the lock.
+
+    Applying a key over a lock is basically addition (lock + key)
+    with each position being capped at 0. (value = max(value, 0))
+    """
+
     values_table = {
         'i': +1,
         'd': -1,

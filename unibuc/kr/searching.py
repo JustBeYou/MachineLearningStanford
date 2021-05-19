@@ -7,7 +7,27 @@ from threading import Timer
 
 T = TypeVar('T')
 class StateNode(ABC, Generic[T]):
+    """Generic definition of a state node in the search space.
+    Stores the actual state representation, cost and it parent.
+    It is an abstract class and MUST be implemented for your 
+    specific problem.
+
+    Attributes:
+        depth (int): Depth in the current path.
+        state (T): Problem state representation.
+        parent (StateNode): Previous state. Defaults to None.
+        cost (int): Cost of reaching the current state.
+        heuristic_cost (int): Heuristic of the current state.
+        final_cost (int): The cost and the heuristic summed up.
+    """
+
     def __init__(self, state: T, parent: Optional['StateNode'] = None):
+        """
+        Args:
+            state (T): Problem state representation.
+            parent (StateNode): Previous state. Defaults to None.
+        """
+
         self.depth: int = 0 if parent == None else cast('StateNode', parent).depth + 1
 
         self.state = state
@@ -18,26 +38,59 @@ class StateNode(ABC, Generic[T]):
 
     @abstractmethod
     def next_states(self, *args, **kwargs) -> Iterable:
+        """Generates the successor states of the current one.
+        Should be implemented for a specific problem.
+
+        Raises:
+            NotImplementedError: If not implemented in a child class.
+
+        Returns:
+            Iterable: An iterable of the successor states.
+                Generators are preferred for efficiency.
+        """
         raise NotImplementedError
 
     def state_value(self):
         return self.state
 
     def arc_cost_fn(self):
+        """Calculates the cost of traversing from the current state
+        to another one. Probably you need to override it.
+
+        Returns:
+            int: The cost.
+        """
         return 1
 
     def heuristic_fn(self):
+        """Calculates the heuristic of the current state.
+        You should override it only if you want to use A*
+        or other heuristic-based algorithms.
+
+        Returns:
+            int: The heuristic.
+        """
         return 0
 
     def __repr__(self):
         return f"< {'(root) ' if self.parent is None else ''}Node ({self.state}) with cost {self.cost} >"
 
 class Comparable(ABC):
+    """Abstract class for defining a comparable object.
+    Implement __lt__ operator and the object should support
+    sorting using Python's standard library.
+    """
+
     @abstractmethod
     def __lt__(self, value):
         raise NotImplementedError
 
 class Hashable(ABC):
+    """Abstract class for defining a hashable object.
+    Implement hexdigest_internal for your custom object.
+    This class comes with caching preimplemented.
+    """
+
     @abstractmethod
     def hexdigest_internal(self):
         raise NotImplementedError
@@ -48,10 +101,20 @@ class Hashable(ABC):
         return self.cached_hash
 
 class PathIterator:
+    """Iterator for traversing a path of StateNode objects.
+    It traverses backwards from the leaf to the root.
+    """
+
     NODE_MODE = lambda node: node
     STATE_ONLY_MODE = lambda node: node.state 
 
     def __init__(self, leaf: StateNode, mode: Callable = NODE_MODE):
+        """
+        Args:
+            leaf (StateNode): Last node in the path.
+            mode (Callable, optional): Lambda expression to extract a desired 
+                value from the nodes. Defaults to NODE_MODE.
+        """
         self.leaf = leaf
         self.mode = mode
 
@@ -66,7 +129,28 @@ class PathIterator:
         raise StopIteration
 
 class SearchingTemplate(ABC):
+    """Template for implementing a solver for some searching problem.
+    You MUST implement a custom StateNode first to use any of the
+    searching algorithms below. Some of them need Comparable or
+    Hashable to be implemented for you custom StateNode.
+
+    The preimplemented algorithms are:
+        - BFS
+        - UCS (needs Comparable)
+        - A* (needs Comparable)
+        - A* with open-closed lists (needs Comparable and Hashable)
+        - IDA* (needs Comparable)
+
+    You need to supply only the root (initial state) to each
+    of those. They'll return the soultion. (if it's possible)
+    """
+
     def __init__(self, logging=False, timeout=60):
+        """
+        Args:
+            logging (bool, optional): If should display logging messages. Defaults to False.
+            timeout (int, optional): Timeout for each algorithm. Defaults to 60.
+        """
         self.logging = logging
         self.timeout = timeout
 
@@ -248,18 +332,53 @@ class SearchingTemplate(ABC):
 
     @abstractmethod
     def initial_has_solution(self, node: StateNode, *args, **kwargs) -> bool:
+        """Checks if the initial state is valid and solvable.
+
+        Args:
+            node (StateNode): The node of the initial state.
+
+        Returns:
+            bool: True if it is solvable.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def check_solution(self, node: StateNode, *args, **kwargs) -> bool:
+        """Checks if the current node is a solution state.
+
+        Args:
+            node (StateNode): Current state.
+
+        Returns:
+            bool: True if it is.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def compute_solution(self, node: StateNode, *args, **kwargs):
+        """Computes the path of the solution.
+        The node should be tested beforehand that it is a 
+        solution state.
+
+        Args:
+            node (StateNode): Solution state.
+
+        Returns:
+            any: Solution representation.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def should_exit(self, results, *args, **kwargs) -> bool:
+        """Checks if the goal has been reached.
+        The algorithm will stop when it returns true.
+
+        Args:
+            results (list): Already computed solutions.
+
+        Returns:
+            bool: True if should stop the algorithm.
+        """
         raise NotImplementedError
 
 class Queue(ABC, Generic[T]):

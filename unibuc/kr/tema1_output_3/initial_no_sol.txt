@@ -1,0 +1,85 @@
+*** BFS ***
+Total time elapsed 0.00072s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** UCS ***
+Total time elapsed 0.00065s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* using Naive heuristic ***
+Total time elapsed 0.00033s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* open-closed using Naive heuristic ***
+Total time elapsed 0.00017s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** IDA* using Naive heuristic ***
+Total time elapsed 0.00018s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* using Heuristic 1 ***
+Total time elapsed 0.00061s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* open-closed using Heuristic 1 ***
+Total time elapsed 0.00035s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** IDA* using Heuristic 1 ***
+Total time elapsed 0.00039s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* using Heuristic 2 ***
+Total time elapsed 0.00037s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* open-closed using Heuristic 2 ***
+Total time elapsed 0.00024s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** IDA* using Heuristic 2 ***
+Total time elapsed 0.00083s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* using Heuristic 3 ***
+Total time elapsed 0.00041s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* open-closed using Heuristic 3 ***
+Total time elapsed 0.00018s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** IDA* using Heuristic 3 ***
+Total time elapsed 0.00049s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* using Inadmissible heuristic ***
+Total time elapsed 0.00048s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** A* open-closed using Inadmissible heuristic ***
+Total time elapsed 0.00046s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
+*** IDA* using Inadmissible heuristic ***
+Total time elapsed 0.00037s
+Max in memory / Total generated = 1 / 1 ratio = 1.0
+No solutions
+
