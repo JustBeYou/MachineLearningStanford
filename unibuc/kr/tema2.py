@@ -1,5 +1,7 @@
 from enum import Enum
 from operator import add
+import arcade
+import numpy as np
 
 class HexCellStatus(Enum):
     FREE = 0
@@ -176,8 +178,141 @@ def testing():
 
     print("[+] All tests passed.")
 
+def compute_hexagon(x, y, length):
+    points = []
+    for i in range(6):
+        angle = i/3 * np.pi + np.pi/2
+        points.append((x + length * np.cos(angle), y + length * np.sin(angle)))
+    return points
+
+def compute_hexagon_below_coefs(length):
+    angle = -1/3 * np.pi
+    dist = length * np.sqrt(3)
+    return (dist * np.cos(angle), dist * np.sin(angle))
+
+def translate_points(points, vx, vy):
+    return [(x + vx, y + vy) for x, y in points]
+
+def distance(xa, ya, xb, yb):
+    return np.sqrt((xa-xb)**2 + (ya-yb)**2)
+
+class HexBoard:
+    def __init__(self, state, screen_width, screen_height, hexagon_length, hexagon_border):
+        self.state = state
+        self.n = state.n
+        self.m = state.m
+
+        total_height = self.n * hexagon_length * np.sqrt(3)
+        total_width = self.m * hexagon_length * np.sqrt(3) + self.n * hexagon_length / 2 * np.sqrt(3)
+        left_margin = (screen_width - total_width) / 2
+        top_margin = (screen_height * 1.1 - total_height) / 2
+
+        self.hexagon_length = hexagon_length
+        self.x_align = left_margin
+        self.y_align = screen_height - top_margin
+        self.hexagon_border = hexagon_border
+
+        self.centers = [[(0, 0) for _ in range(self.m)] for _ in range(self.n)]
+        self.radius = self.hexagon_length / 2 * np.sqrt(3)
+
+        self.current_player = HexCellStatus.RED
+        self.winner = None
+
+    def draw(self):
+        x, y, length = self.x_align, self.y_align, self.hexagon_length
+
+        if self.winner != None:
+            arcade.draw_text(f"{self.winner} won the game!", x, y + 70, arcade.color.BLACK, 18)
+
+        arcade.draw_text(f"Current player: {self.current_player}", x, y + 40, arcade.color.BLACK, 14)
+
+        hexagon = compute_hexagon(x, y, length)
+        hexagons = [hexagon]
+        displacement = length * np.sqrt(3)
+        for _ in range(self.state.m - 1):
+            hexagons.append(translate_points(hexagons[-1], displacement, 0))
+        
+        x_coef, y_coef = compute_hexagon_below_coefs(length)
+        x_center_row, y_center_row = x, y      
+
+        for r, row in enumerate(self.state.board):
+            x_center_col, y_center_col = x_center_row, y_center_row
+            for q, (cell, poly) in enumerate(zip(row, hexagons)):
+                zone = self.state.zone_of(r, q)
+
+                if cell != HexCellStatus.FREE:
+                    color = arcade.color.RED if cell == HexCellStatus.RED else arcade.color.BLUE
+                    arcade.draw_polygon_filled(poly, color)
+
+                if zone == HexBoardZone.TOP or zone == HexBoardZone.BOTTOM:
+                    arcade.draw_point(x_center_col, y_center_col, arcade.color.RED, 4)
+                elif zone == HexBoardZone.LEFT or zone == HexBoardZone.RIGHT:
+                    arcade.draw_point(x_center_col, y_center_col, arcade.color.BLUE, 4)
+
+                arcade.draw_polygon_outline(poly, arcade.color.BLACK, self.hexagon_border)
+
+                self.centers[r][q] = (x_center_col, y_center_col)
+                x_center_col += displacement
+
+            x_center_row += x_coef
+            y_center_row += y_coef
+            hexagons = [translate_points(h, x_coef, y_coef) for h in hexagons]
+
+    def on_click(self, x, y):
+        if self.winner != None:
+            return
+
+        found = None
+        for r in range(self.n):
+            for q in range(self.m):
+                cx, cy = self.centers[r][q]                
+                dist = distance(x, y, cx, cy)
+                if dist <= self.radius:
+                    found = (r, q)
+                    break
+            if found != None:
+                break
+
+        if found == None:
+            return
+
+        if self.state.get(r, q) == HexCellStatus.FREE:
+            self.state.set(r, q, self.current_player)
+            self.winner = self.state.winner()
+            if self.winner != None:
+                return
+
+            self.current_player = HexCellStatus.BLUE if self.current_player == HexCellStatus.RED else HexCellStatus.RED
+
+class MainWindow(arcade.Window):
+    def __init__(self):
+        SCREEN_WIDTH = 800
+        SCREEN_HEIGHT = 600
+        SCREEN_TITLE = "Hex Game"
+
+        HEXAGON_LENGTH = 20
+        HEXAGON_BORDER = 3
+        N = 6
+        M = 6
+
+        assert N <= 20 and M <= 20
+
+        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+        arcade.set_background_color(arcade.color.WHITE)
+
+        self.hs = HexBoardState(N, M)
+        self.hb = HexBoard(self.hs, SCREEN_WIDTH, SCREEN_HEIGHT, HEXAGON_LENGTH, HEXAGON_BORDER)
+
+    def on_draw(self):
+        arcade.start_render()
+        self.hb.draw()
+
+    def on_mouse_press(self, x, y, button, modifiers):
+        self.hb.on_click(x, y)
+
 def main():
-    pass
+    MainWindow()
+    arcade.run()
 
 testing()
 main()
