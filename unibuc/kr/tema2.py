@@ -268,7 +268,7 @@ class HexBoard:
 
     def on_click(self, x, y):
         if self.winner != None:
-            return
+            return None
 
         found = None
         for r in range(self.n):
@@ -282,19 +282,20 @@ class HexBoard:
                 break
 
         if found == None:
-            return
+            return None
 
-        self.set_cell(found[0], found[1])
+        return self.set_cell(found[0], found[1])
 
     def set_cell(self, r, q):
         if self.state.get(r, q) == HexCellStatus.FREE:
             self.state.set(r, q, self.current_player)
             self.winner = self.state.winner()
             if self.winner != None:
-                return
+                return (r, q)
 
             self.current_player = HexCellStatus.BLUE if self.current_player == HexCellStatus.RED else HexCellStatus.RED
-
+            return (r, q)
+        return None
 
 def createButtonClass(handler):
 
@@ -376,8 +377,9 @@ class GameView(arcade.View):
 
     def on_mouse_press(self, x, y, button, modifiers):
         if self.mode == GameMode.PvC and self.hb.current_player == HexCellStatus.RED:
-            self.hb.on_click(x, y)
-            self.engine.move()
+            last_move = self.hb.on_click(x, y)
+            if last_move != None: 
+                self.engine.move()
         else:
             self.hb.on_click(x, y)
 
