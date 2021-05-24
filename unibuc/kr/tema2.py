@@ -1,7 +1,9 @@
 from enum import Enum
 from operator import add
 import arcade
+import arcade.gui
 import numpy as np
+from itertools import product
 
 class HexCellStatus(Enum):
     FREE = 0
@@ -83,7 +85,10 @@ class HexBoardState:
     def __init__(self, n = 11, m = 11):
         self.n = n
         self.m = m
-        self.board = [[HexCellStatus.FREE for _ in range(m)] for _ in range(n)]
+        self.reset() 
+
+    def reset(self):
+        self.board = [[HexCellStatus.FREE for _ in range(self.m)] for _ in range(self.n)]
 
     def valid_cell(self, r, q):
         return r >= 0 and q >= 0 and r < self.n and q < self.m
@@ -202,10 +207,10 @@ class HexBoard:
         self.n = state.n
         self.m = state.m
 
-        total_height = self.n * hexagon_length * np.sqrt(3)
-        total_width = self.m * hexagon_length * np.sqrt(3) + self.n * hexagon_length / 2 * np.sqrt(3)
-        left_margin = (screen_width - total_width) / 2
-        top_margin = (screen_height * 1.1 - total_height) / 2
+        self.total_height = self.n * hexagon_length * np.sqrt(3)
+        self.total_width = self.m * hexagon_length * np.sqrt(3) + self.n * hexagon_length / 2 * np.sqrt(3)
+        left_margin = (screen_width - self.total_width) / 2
+        top_margin = (screen_height * 1.1 - self.total_height) / 2
 
         self.hexagon_length = hexagon_length
         self.x_align = left_margin
@@ -215,6 +220,9 @@ class HexBoard:
         self.centers = [[(0, 0) for _ in range(self.m)] for _ in range(self.n)]
         self.radius = self.hexagon_length / 2 * np.sqrt(3)
 
+        self.reset()
+
+    def reset(self):
         self.current_player = HexCellStatus.RED
         self.winner = None
 
@@ -276,6 +284,9 @@ class HexBoard:
         if found == None:
             return
 
+        self.set_cell(found[0], found[1])
+
+    def set_cell(self, r, q):
         if self.state.get(r, q) == HexCellStatus.FREE:
             self.state.set(r, q, self.current_player)
             self.winner = self.state.winner()
@@ -284,34 +295,192 @@ class HexBoard:
 
             self.current_player = HexCellStatus.BLUE if self.current_player == HexCellStatus.RED else HexCellStatus.RED
 
-class MainWindow(arcade.Window):
-    def __init__(self):
-        SCREEN_WIDTH = 800
-        SCREEN_HEIGHT = 600
-        SCREEN_TITLE = "Hex Game"
 
-        HEXAGON_LENGTH = 20
-        HEXAGON_BORDER = 3
-        N = 6
-        M = 6
+def createButtonClass(handler):
 
-        assert N <= 20 and M <= 20
+    class MyButton(arcade.gui.UIFlatButton):
+        def __init__(self, text, center_x, center_y, *args, width=220):
+            super().__init__(
+                text,
+                center_x=center_x,
+                center_y=center_y,
+                width=width,
+                height=50,
+            )
+            self.args = args
 
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
-        arcade.set_background_color(arcade.color.WHITE)
+            self.style.set_class_attrs("button", font_size=14)
+
+        def on_click(self):
+           handler(*self.args) 
+    
+    return MyButton
+
+def handle_reset(board):
+    board.reset()
+    board.state.reset()
+
+def handle_go(window, view_before_class, *args):
+    view_before = view_before_class(*args)
+    window.show_view(view_before)
+
+def handle_play():
+    pass
+
+RestartButton = createButtonClass(handle_reset)
+GoButton = createButtonClass(handle_go)
+PlayButton = createButtonClass(handle_play)
+
+class GameMode(Enum):
+    PvP = 0
+    PvC = 1
+    CvC = 2
+
+class HexNaiveEngine:
+    def __init__(self, board):
+        self.board = board
+        
+    def move(self):
+        print("[i] Engine is computing a move...")
+
+        found = None
+        for r, q in product(range(self.board.state.n), range(self.board.state.m)):
+            if self.board.state.get(r, q) == HexCellStatus.FREE:
+                found = (r, q)
+                break
+        self.board.set_cell(r, q)
+
+        print(f"[i] Engine moved {found}")
+
+class GameView(arcade.View):
+    def __init__(self, mode, engine_class = None):
+        super().__init__()
 
         self.hs = HexBoardState(N, M)
         self.hb = HexBoard(self.hs, SCREEN_WIDTH, SCREEN_HEIGHT, HEXAGON_LENGTH, HEXAGON_BORDER)
+        self.ui_manager = arcade.gui.UIManager()
+
+        self.mode = mode
+        self.engine = engine_class(self.hb) if engine_class != None else None
+
+    def on_show_view(self):
+        self.setup()
+        arcade.set_background_color(arcade.color.WHITE)
+
+    def on_hide_view(self):
+        self.ui_manager.unregister_handlers()
 
     def on_draw(self):
         arcade.start_render()
         self.hb.draw()
 
     def on_mouse_press(self, x, y, button, modifiers):
-        self.hb.on_click(x, y)
+        if self.mode == GameMode.PvC and self.hb.current_player == HexCellStatus.RED:
+            self.hb.on_click(x, y)
+            self.engine.move()
+        else:
+            self.hb.on_click(x, y)
+
+    def setup(self):
+        self.ui_manager.purge_ui_elements()
+
+        self.ui_manager.add_ui_element(
+            RestartButton(
+                "Restart game",
+                self.hb.x_align + self.hb.total_width // 2 - 130, 
+                self.hb.y_align - self.hb.total_height - 30, 
+                self.hb
+            )
+        )
+
+        self.ui_manager.add_ui_element(
+            GoButton(
+                "Back",
+                self.hb.x_align + self.hb.total_width // 2 + 130, 
+                self.hb.y_align - self.hb.total_height - 30, 
+                self.window,
+                MenuView,
+            )
+        )
+
+class MenuView(arcade.View):
+    def __init__(self):
+        super().__init__()
+        self.ui_manager = arcade.gui.UIManager()
+        self.x = SCREEN_WIDTH // 2
+        self.y = SCREEN_HEIGHT - (0.15 * SCREEN_HEIGHT)
+
+    def on_show_view(self):
+        self.setup()
+        arcade.set_background_color(arcade.color.WHITE)
+
+    def on_draw(self):
+        arcade.start_render()
+        arcade.draw_text("Hex Game", self.x, self.y,
+                         arcade.color.BLACK, font_size=30, anchor_x="center")
+
+    def on_hide_view(self):
+        self.ui_manager.unregister_handlers()
+
+    def setup(self):
+        self.ui_manager.purge_ui_elements()
+
+        self.ui_manager.add_ui_element(
+            GoButton(
+                "Player vs Player",
+                self.x,
+                self.y - 50,
+                self.window,
+                GameView,
+                GameMode.PvP,
+                width=380,
+            )
+        )
+
+        self.ui_manager.add_ui_element(
+            GoButton(
+                "Player vs Computer",
+                self.x,
+                self.y - 120,
+                self.window,
+                GameView,
+                GameMode.PvC,
+                HexNaiveEngine,
+                width=380,
+            )
+        )
+
+        self.ui_manager.add_ui_element(
+            GoButton(
+                "Computer vs Computer",
+                self.x,
+                self.y - 190,
+                self.window,
+                None,
+                width=380,
+            )
+        )
+
+class MainWindow(arcade.Window):
+    def __init__(self):
+        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+        arcade.set_background_color(arcade.color.WHITE)
+
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+SCREEN_TITLE = "Hex Game"
+
+HEXAGON_LENGTH = 20
+HEXAGON_BORDER = 3
+N = 11
+M = 11
+
+assert N <= 20 and M <= 20
 
 def main():
-    MainWindow()
+    mainWindow = MainWindow()
+    menuView = MenuView()
+    mainWindow.show_view(menuView)
     arcade.run()
 
 testing()
