@@ -4,6 +4,8 @@ import arcade
 import arcade.gui
 import numpy as np
 from itertools import product
+from threading import Thread
+from time import sleep
 
 class HexCellStatus(Enum):
     FREE = 0
@@ -317,20 +319,21 @@ def createButtonClass(handler):
     
     return MyButton
 
-def handle_reset(board):
+def handle_reset(board, thread, obj):
     board.reset()
     board.state.reset()
 
-def handle_go(window, view_before_class, *args):
+    if thread != None:
+        obj.reinit_thrading()
+
+def handle_go(window, view_before_class, cleanup, *args):
+    if cleanup != None:
+        cleanup()
     view_before = view_before_class(*args)
     window.show_view(view_before)
 
-def handle_play():
-    pass
-
 RestartButton = createButtonClass(handle_reset)
 GoButton = createButtonClass(handle_go)
-PlayButton = createButtonClass(handle_play)
 
 class GameMode(Enum):
     PvP = 0
@@ -353,8 +356,19 @@ class HexNaiveEngine:
 
         print(f"[i] Engine moved {found}")
 
+def computer_play(obj, board, engine, engine2):
+    print("[i] Computers should play")
+    sleep(ENGINE_DELAY)
+    while board.winner == None and obj.should_stop == False:
+        if board.current_player == HexCellStatus.RED:
+            engine.move()
+        else:
+            engine2.move()
+        sleep(ENGINE_DELAY)
+    print("[+] Computers done.")
+
 class GameView(arcade.View):
-    def __init__(self, mode, engine_class = None):
+    def __init__(self, mode, engine_class = None, engine_class2 = None):
         super().__init__()
 
         self.hs = HexBoardState(N, M)
@@ -363,6 +377,17 @@ class GameView(arcade.View):
 
         self.mode = mode
         self.engine = engine_class(self.hb) if engine_class != None else None
+        self.engine2 = engine_class2(self.hb) if engine_class2 != None else None
+
+        self.reinit_thrading()
+
+    def reinit_thrading(self):
+        self.should_stop = False
+        if self.mode == GameMode.CvC:
+            self.thread = Thread(target = computer_play, args = (self, self.hb, self.engine, self.engine2))
+            self.thread.start()
+        else:
+            self.thread = None
 
     def on_show_view(self):
         self.setup()
@@ -373,10 +398,16 @@ class GameView(arcade.View):
 
     def on_draw(self):
         arcade.start_render()
+        arcade.draw_text(f"{self.mode}", 20, SCREEN_HEIGHT - 30, arcade.color.BLACK, 16)
         self.hb.draw()
 
     def on_mouse_press(self, x, y, button, modifiers):
-        if self.mode == GameMode.PvC and self.hb.current_player == HexCellStatus.RED:
+        if self.hb.winner != None:
+            return
+
+        if self.mode == GameMode.CvC:
+            return 
+        elif self.mode == GameMode.PvC and self.hb.current_player == HexCellStatus.RED:
             last_move = self.hb.on_click(x, y)
             if last_move != None: 
                 self.engine.move()
@@ -391,9 +422,16 @@ class GameView(arcade.View):
                 "Restart game",
                 self.hb.x_align + self.hb.total_width // 2 - 130, 
                 self.hb.y_align - self.hb.total_height - 30, 
-                self.hb
+                self.hb,
+                self.thread,
+                self,
             )
         )
+
+        def cleanup():
+            if self.thread != None:
+                self.should_stop = True
+                self.thread.join()
 
         self.ui_manager.add_ui_element(
             GoButton(
@@ -402,6 +440,7 @@ class GameView(arcade.View):
                 self.hb.y_align - self.hb.total_height - 30, 
                 self.window,
                 MenuView,
+                cleanup,
             )
         )
 
@@ -434,6 +473,7 @@ class MenuView(arcade.View):
                 self.y - 50,
                 self.window,
                 GameView,
+                None,
                 GameMode.PvP,
                 width=380,
             )
@@ -446,6 +486,7 @@ class MenuView(arcade.View):
                 self.y - 120,
                 self.window,
                 GameView,
+                None,
                 GameMode.PvC,
                 HexNaiveEngine,
                 width=380,
@@ -458,7 +499,11 @@ class MenuView(arcade.View):
                 self.x,
                 self.y - 190,
                 self.window,
+                GameView,
                 None,
+                GameMode.CvC,
+                HexNaiveEngine,
+                HexNaiveEngine,
                 width=380,
             )
         )
@@ -478,6 +523,8 @@ N = 11
 M = 11
 
 assert N <= 20 and M <= 20
+
+ENGINE_DELAY = 0.05
 
 def main():
     mainWindow = MainWindow()
