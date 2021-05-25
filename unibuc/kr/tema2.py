@@ -6,6 +6,12 @@ import numpy as np
 from itertools import product
 from threading import Thread
 from time import sleep
+from copy import deepcopy
+from pytictoc import TicToc
+
+#
+# === Game state and logic ===
+#
 
 class HexCellStatus(Enum):
     FREE = 0
@@ -89,6 +95,11 @@ class HexBoardState:
         self.m = m
         self.reset() 
 
+    # TODO: for some reason cloning the object causes infinite recursion
+    # use reference for now (but with care!!!)
+    def clone(self):
+        return self
+
     def reset(self):
         self.board = [[HexCellStatus.FREE for _ in range(self.m)] for _ in range(self.n)]
 
@@ -101,6 +112,12 @@ class HexBoardState:
             new_r, new_q = tuple(map(add, (r, q), direction.value))
             if self.valid_cell(new_r, new_q):
                 yield new_r, new_q
+
+    def available(self):
+        for r in range(self.n):
+            for q in range(self.m):
+                if self.board[r][q] == HexCellStatus.FREE:
+                    yield (r, q)
 
     def get(self, r, q):
         return self.board[r][q]
@@ -158,6 +175,10 @@ class HexBoardState:
     def __str__(self):
         return "\n".join([" | ".join([str(c) for c in r]) for r in self.board])
 
+#
+# === Testing the correctness of the implementation ===
+# 
+
 def testing():
     print("[i] Testing correctness")
     b = HexBoardState(4, 4)
@@ -185,6 +206,10 @@ def testing():
 
     print("[+] All tests passed.")
 
+#
+# === Geometry helpers for drawing hexagons ===
+#
+
 def compute_hexagon(x, y, length):
     points = []
     for i in range(6):
@@ -202,6 +227,10 @@ def translate_points(points, vx, vy):
 
 def distance(xa, ya, xb, yb):
     return np.sqrt((xa-xb)**2 + (ya-yb)**2)
+
+#
+# === Graphical logic for the game ===
+#
 
 class HexBoard:
     def __init__(self, state, screen_width, screen_height, hexagon_length, hexagon_border):
@@ -222,6 +251,8 @@ class HexBoard:
         self.centers = [[(0, 0) for _ in range(self.m)] for _ in range(self.n)]
         self.radius = self.hexagon_length / 2 * np.sqrt(3)
 
+        self.thinking = False
+
         self.reset()
 
     def reset(self):
@@ -230,6 +261,10 @@ class HexBoard:
 
     def draw(self):
         x, y, length = self.x_align, self.y_align, self.hexagon_length
+
+        if self.thinking:
+            arcade.draw_text("Thinking...", x, y, arcade.color.BLACK, 30)
+            return
 
         if self.winner != None:
             arcade.draw_text(f"{self.winner} won the game!", x, y + 70, arcade.color.BLACK, 18)
@@ -299,6 +334,10 @@ class HexBoard:
             return (r, q)
         return None
 
+#
+# === GUI helpers for creating buttons and input fields ===
+# 
+
 def createButtonClass(handler):
 
     class MyButton(arcade.gui.UIFlatButton):
@@ -320,11 +359,14 @@ def createButtonClass(handler):
     return MyButton
 
 def handle_reset(board, thread, obj):
+    if thread != None:
+        obj.cleanup()
+
     board.reset()
     board.state.reset()
 
-    if thread != None:
-        obj.reinit_thrading()
+    if obj.mode == GameMode.CvC:
+        obj.reinit_threading()
 
 def handle_go(window, view_before_class, cleanup, *args):
     if cleanup != None:
@@ -335,14 +377,135 @@ def handle_go(window, view_before_class, cleanup, *args):
 RestartButton = createButtonClass(handle_reset)
 GoButton = createButtonClass(handle_go)
 
+def createToggleClass(handler):
+
+    class MyToggle(arcade.gui.UIToggle):
+        def __init__(self, center_x, center_y, *args, height=10):
+                super().__init__(center_x, center_y, value=False, height=height)
+                self.args = args
+
+        def on_click(self):
+            self.value = not self.value
+            handler(*self.args)
+
+    return MyToggle
+
+def handle_alg_switch(config, label):
+    if config.algorithm == EngineAlgorithms.MINI_MAX:
+        config.algorithm = EngineAlgorithms.ALPHA_BETA
+    else:
+        config.algorithm = EngineAlgorithms.MINI_MAX
+
+    text = "Mini-Max" if config.algorithm == EngineAlgorithms.MINI_MAX else "Alpha-Beta"
+    label.text = text
+
+AlgToggle = createToggleClass(handle_alg_switch)
+
+#
+# === Global configuration ===
+#
+
+class EngineAlgorithms(Enum):
+    MINI_MAX = 0
+    ALPHA_BETA = 1
+
+class Configuration:
+    def __init__(self):
+        self.algorithm = EngineAlgorithms.MINI_MAX
+        self.engine = HexNaiveEngine
+        self.engine2 = HexDumbEngine
+
+#
+# === Engine logic ===
+#
+
+
+class Minimax:
+    def __init__(self, color, board_state, evaluate, pruning = False):
+        self.board_state = board_state
+        self.evaluate = evaluate
+        self.color = color
+        self.cnt = 0
+        self.pruning = pruning
+
+        if self.color == HexCellStatus.RED:
+            self.other_color = HexCellStatus.BLUE
+        else:
+            self.other_color = HexCellStatus.RED
+
+    def do(self, r, q, color):
+        self.board_state.set(r, q, color)
+
+    def __revert(self, r, q):
+        self.board_state.set(r, q, HexCellStatus.FREE)
+
+    def best_move(self, max_depth):
+        self.cnt = 0
+        self.copy_board_state = self.board_state.clone()
+        return self.__dfs(None, 0, max_depth)
+
+    def __max_move(self, a, b):
+        if a[1] > b[1]:
+            return a
+        return b
+
+    def __min_move(self, a, b):
+        if a[1] < b[1]:
+            return a
+        return b
+
+    def __dfs(self, move, level, max_depth, alpha = float("-inf"), beta = float("inf")):
+        cnt = self.cnt
+        self.cnt += 1
+
+        #print(f"[minimax] {cnt} Last move: {move} on level {level}")
+        #print(self.copy_board_state)
+
+        winner = self.copy_board_state.winner()
+        if winner != None:
+            #print(f"[minimax] {cnt} Found leaf {move, self.evaluate(self.color, self.copy_board_state, winner)}")
+            return move, self.evaluate(self.color, self.copy_board_state, winner)
+
+        if level == max_depth:
+            return move, self.evaluate(self.color, self.copy_board_state, self.copy_board_state.winner())
+        func = self.__max_move if level % 2 == 0 else self.__min_move
+        to_color = self.color if level % 2 == 0 else self.other_color
+        best = (None, float("-inf")) if level % 2 == 0 else (None, float("inf"))
+
+        for r, q in self.copy_board_state.available():
+            self.do(r, q, to_color)
+            tree_value = self.__dfs((r, q) if move == None else move, level + 1, max_depth, alpha, beta)
+            best = func(best, tree_value)
+            self.__revert(r, q)
+
+            if self.pruning and level % 2 == 0:
+                if best[1] >= beta:
+                    return best
+                
+                if best[1] > alpha:
+                    alpha = best[1]
+            elif self.pruning:
+                if best[1] <= alpha:
+                    return best
+
+                if best[1] < beta:
+                    beta = best[1]
+
+
+        #print(f"[minimax] {cnt} Best on level {level} = {best}")
+        return best
+
 class GameMode(Enum):
     PvP = 0
     PvC = 1
     CvC = 2
 
-class HexNaiveEngine:
-    def __init__(self, board):
+class HexDumbEngine:
+    """Color the first empty hexagon.
+    """
+    def __init__(self, board, color, config):
         self.board = board
+        self.config = config
         
     def move(self):
         print("[i] Engine is computing a move...")
@@ -356,32 +519,78 @@ class HexNaiveEngine:
 
         print(f"[i] Engine moved {found}")
 
+class HexNaiveEngine:
+    """Generate the entire solution space.
+    """
+    def __init__(self, board, color, config):
+        print(f"[i] Created engine with color {color}")
+        self.board = board
+        self.config = config
+        
+        self.predictor = Minimax(
+            color, 
+            self.board.state, 
+            self.evaluate,
+            pruning=self.config.algorithm == EngineAlgorithms.ALPHA_BETA,
+        )
+
+
+    def evaluate(self, color, board_state, winner):
+        if winner == None:
+            return 0
+        if winner == color:
+            return +1
+        return -1
+
+    def move(self):
+        print("[i] Engine is computing a move...")
+        found = self.predictor.best_move(999999)
+        self.board.set_cell(found[0][0], found[0][1])
+        print(f"[i] Engine moved {found}")
+
 def computer_play(obj, board, engine, engine2):
     print("[i] Computers should play")
     sleep(ENGINE_DELAY)
     while board.winner == None and obj.should_stop == False:
+        print(f"[i] Current player {board.current_player}")
+        board.thinking = True
+        t = TicToc()
+        t.tic()
         if board.current_player == HexCellStatus.RED:
             engine.move()
         else:
             engine2.move()
+        board.thinking = False
+        t.toc()
         sleep(ENGINE_DELAY)
     print("[+] Computers done.")
 
+#
+# === Game user interface ===
+#
+
 class GameView(arcade.View):
-    def __init__(self, mode, engine_class = None, engine_class2 = None):
+    def __init__(self, mode, config, engine_class = None, engine_class2 = None):
         super().__init__()
+
+        self.config = config
 
         self.hs = HexBoardState(N, M)
         self.hb = HexBoard(self.hs, SCREEN_WIDTH, SCREEN_HEIGHT, HEXAGON_LENGTH, HEXAGON_BORDER)
         self.ui_manager = arcade.gui.UIManager()
 
         self.mode = mode
-        self.engine = engine_class(self.hb) if engine_class != None else None
-        self.engine2 = engine_class2(self.hb) if engine_class2 != None else None
 
-        self.reinit_thrading()
+        first_comp_color = HexCellStatus.BLUE
+        if self.mode == GameMode.CvC:
+            first_comp_color = HexCellStatus.RED
 
-    def reinit_thrading(self):
+        self.engine = engine_class(self.hb, first_comp_color, config) if engine_class != None else None
+        self.engine2 = engine_class2(self.hb, HexCellStatus.BLUE, config) if engine_class2 != None else None
+
+        self.reinit_threading()
+
+    def reinit_threading(self):
         self.should_stop = False
         if self.mode == GameMode.CvC:
             self.thread = Thread(target = computer_play, args = (self, self.hb, self.engine, self.engine2))
@@ -409,10 +618,18 @@ class GameView(arcade.View):
             return 
         elif self.mode == GameMode.PvC and self.hb.current_player == HexCellStatus.RED:
             last_move = self.hb.on_click(x, y)
-            if last_move != None: 
+            if last_move != None and self.hb.winner == None:
+                t = TicToc()
+                t.tic()
                 self.engine.move()
+                t.toc()
         else:
             self.hb.on_click(x, y)
+
+    def cleanup(self):
+        if self.thread != None:
+            self.should_stop = True
+            self.thread.join()
 
     def setup(self):
         self.ui_manager.purge_ui_elements()
@@ -428,11 +645,6 @@ class GameView(arcade.View):
             )
         )
 
-        def cleanup():
-            if self.thread != None:
-                self.should_stop = True
-                self.thread.join()
-
         self.ui_manager.add_ui_element(
             GoButton(
                 "Back",
@@ -440,16 +652,18 @@ class GameView(arcade.View):
                 self.hb.y_align - self.hb.total_height - 30, 
                 self.window,
                 MenuView,
-                cleanup,
+                self.cleanup,
+                self.config,
             )
         )
 
 class MenuView(arcade.View):
-    def __init__(self):
+    def __init__(self, config):
         super().__init__()
         self.ui_manager = arcade.gui.UIManager()
         self.x = SCREEN_WIDTH // 2
         self.y = SCREEN_HEIGHT - (0.15 * SCREEN_HEIGHT)
+        self.config = config
 
     def on_show_view(self):
         self.setup()
@@ -475,6 +689,7 @@ class MenuView(arcade.View):
                 GameView,
                 None,
                 GameMode.PvP,
+                self.config,
                 width=380,
             )
         )
@@ -488,7 +703,8 @@ class MenuView(arcade.View):
                 GameView,
                 None,
                 GameMode.PvC,
-                HexNaiveEngine,
+                self.config,
+                self.config.engine,
                 width=380,
             )
         )
@@ -502,8 +718,76 @@ class MenuView(arcade.View):
                 GameView,
                 None,
                 GameMode.CvC,
-                HexNaiveEngine,
-                HexNaiveEngine,
+                self.config,
+                self.config.engine,
+                self.config.engine2,
+                width=380,
+            )
+        )
+
+        self.ui_manager.add_ui_element(
+            GoButton(
+                "Settings",
+                self.x,
+                self.y - 260,
+                self.window,
+                SettingsView,
+                None,
+                self.config,
+                width=380,
+            )
+        )
+
+class SettingsView(arcade.View):
+    def __init__(self, config):
+        super().__init__()
+        self.ui_manager = arcade.gui.UIManager()
+        self.x = SCREEN_WIDTH // 2
+        self.y = SCREEN_HEIGHT - (0.15 * SCREEN_HEIGHT)
+        self.config = config
+
+    def on_show_view(self):
+        self.setup()
+        arcade.set_background_color(arcade.color.WHITE)
+
+    def on_draw(self):
+        arcade.start_render()
+        arcade.draw_text("Settings", self.x, self.y,
+                         arcade.color.BLACK, font_size=30, anchor_x="center")
+
+    def on_hide_view(self):
+        self.ui_manager.unregister_handlers()
+
+    def setup(self):
+        self.ui_manager.purge_ui_elements()
+
+        label1 = arcade.gui.UILabel(
+            "Mini-Max" if self.config.algorithm == EngineAlgorithms.MINI_MAX else "Alpha-Beta",
+            self.x - 50,
+            self.y - 50,
+            width=380,
+        )
+        self.ui_manager.add_ui_element(label1)
+
+        self.ui_manager.add_ui_element(
+            AlgToggle(
+                self.x + 150,
+                self.y - 50,
+                self.config,
+                label1,
+                height=25,
+            )
+        )
+
+        self.ui_manager.add_ui_element(
+            GoButton(
+                "Back",
+                self.x,
+                self.y - 260,
+                self.window,
+                MenuView,
+                None,
+                self.config,
                 width=380,
             )
         )
@@ -513,22 +797,32 @@ class MainWindow(arcade.Window):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
         arcade.set_background_color(arcade.color.WHITE)
 
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
+#
+# === Constants ===
+#
+
+SCREEN_WIDTH = 900
+SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Hex Game"
 
 HEXAGON_LENGTH = 20
 HEXAGON_BORDER = 3
-N = 11
-M = 11
+N = 3
+M = 3
 
+assert N >= 2 and M >= 2
 assert N <= 20 and M <= 20
 
-ENGINE_DELAY = 0.05
+ENGINE_DELAY = 2
+
+#
+# === Main ===
+#
 
 def main():
+    config = Configuration()
     mainWindow = MainWindow()
-    menuView = MenuView()
+    menuView = MenuView(config)
     mainWindow.show_view(menuView)
     arcade.run()
 
