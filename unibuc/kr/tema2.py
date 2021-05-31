@@ -1,22 +1,44 @@
 from enum import Enum
 from operator import add
-import arcade
-import arcade.gui
+import arcade as arcade
+import arcade.gui as gui
 import numpy as np
 from itertools import product
 from threading import Thread
 from time import sleep
 from copy import deepcopy
 from pytictoc import TicToc
+from heapq import heappush, heappop
+import sys
+from random import choice
+from hashlib import sha1
+from marshal import dumps
+from sys import argv
+
+WIN_VALUE = 10**6
+LOSE_VALUE = -10**6
+
+DEPTH_TRESHOLD = 1000
+
+POS_INF = WIN_VALUE + DEPTH_TRESHOLD
+NEG_INF = LOSE_VALUE - DEPTH_TRESHOLD
+
+WINNING_TRESHOLD = WIN_VALUE - DEPTH_TRESHOLD
+LOSING_TRESHOLD = LOSE_VALUE + DEPTH_TRESHOLD
 
 #
 # === Game state and logic ===
 #
 
-class HexCellStatus(Enum):
+class HexCellStatus():
     FREE = 0
     RED  = 1
     BLUE = 2
+
+    LIGHT_RED = 3
+    LIGHT_BLUE = 4
+    LIGHT_PURPLE = 5
+    GOLDEN_BORDER = 6
 
     def __str__(self):
         if self.value == 2:
@@ -25,24 +47,27 @@ class HexCellStatus(Enum):
             return "R"
         return "F"
 
+    def __repr__(self):
+        return self.__str__()
+
 class HexDirections(Enum):
     LEFT         = ( 0, -1)
-    RIGHT        = ( 0, +1)
     TOP_LEFT     = (-1,  0)
     TOP_RIGHT    = (-1, +1)
-    BOTTOM_LEFT  = (+1, -1)
-    BOTTOM_RIGHT = (+1,  0)
-
-class HexBoardZone(Enum):
-    TOP_LEFT     = (-1, -1)
-    TOP          = (-1,  0)
-    TOP_RIGHT    = (-1, +1)
     RIGHT        = ( 0, +1)
-    BOTTOM_RIGHT = (+1, +1)
-    BOTTOM       = (+1,  0)
+    BOTTOM_RIGHT = (+1,  0)
     BOTTOM_LEFT  = (+1, -1)
-    LEFT         = ( 0, -1)
-    INSIDE       = ( 0,  0)
+
+class HexBoardZone():
+    TOP_LEFT     = 0
+    TOP          = 1
+    TOP_RIGHT    = 2
+    RIGHT        = 3
+    BOTTOM_RIGHT = 4
+    BOTTOM       = 5
+    BOTTOM_LEFT  = 6
+    LEFT         = 7
+    INSIDE       = 8
 
 class HexGoal:
     def __init__(self, start, end, color):
@@ -60,6 +85,8 @@ class HexGoal:
         return any(self.start.values()) and any(self.end.values())
 
 class HexRedGoal(HexGoal):
+    cnt = 0
+
     def __init__(self):
         super().__init__([
             HexBoardZone.TOP,
@@ -99,15 +126,19 @@ class HexBoardState:
     # use reference for now (but with care!!!)
     def clone(self):
         return self
+        #new_board = [[self.board[r][q] for q in range(self.m)] for r in range(self.n)] 
+        #new_board_state = HexBoardState(self.n, self.m, self.board)
+        #return new_board_state
 
     def reset(self):
         self.board = [[HexCellStatus.FREE for _ in range(self.m)] for _ in range(self.n)]
+        self.ghost_board = [[HexCellStatus.FREE for _ in range(self.m)] for _ in range(self.n)]
 
     def valid_cell(self, r, q):
         return r >= 0 and q >= 0 and r < self.n and q < self.m
 
     def neighbours_of(self, r, q):
-        assert self.valid_cell(r, q)
+        #assert self.valid_cell(r, q)
         for direction in HexDirections:
             new_r, new_q = tuple(map(add, (r, q), direction.value))
             if self.valid_cell(new_r, new_q):
@@ -126,7 +157,7 @@ class HexBoardState:
         self.board[r][q] = value
 
     def zone_of(self, r, q):
-        assert self.valid_cell(r, q)
+        #assert self.valid_cell(r, q)
         p = (r, q)
 
         if p == (0, 0): return HexBoardZone.TOP_LEFT
@@ -148,41 +179,129 @@ class HexBoardState:
         # explore from TOP
         for q in range(0, self.m):
             if board_copy[0][q] == redGoal.color:
-                self.__dfs(0, q, board_copy, redGoal)
-        if redGoal.accomplished():
-            return redGoal.color
+                path = self.__dfs(0, q, board_copy, redGoal, [])
+                if redGoal.accomplished():
+                    return redGoal.color, path
 
         # explore from left
         for r in range(0, self.n):
             if board_copy[r][0] == blueGoal.color:
-                self.__dfs(r, 0, board_copy, blueGoal)
-        if blueGoal.accomplished():
-            return blueGoal.color
+                path = self.__dfs(r, 0, board_copy, blueGoal, [])
+                if blueGoal.accomplished():
+                    return blueGoal.color, path
 
         return None
 
-    def __dfs(self, r, q, board_copy, goal):
+    def __dfs(self, r, q, board_copy, goal, path):
         board_copy[r][q] = None
         z = self.zone_of(r, q)
 
         if z != HexBoardZone.INSIDE:
             goal.mark(z)
 
+            if goal.accomplished():
+                path.append((r, q))
+                return path
+
         for nr, nq in self.neighbours_of(r, q):
             if board_copy[nr][nq] == goal.color:
-                self.__dfs(nr, nq, board_copy, goal)
+                path = self.__dfs(nr, nq, board_copy, goal, path)
+
+                if goal.accomplished():
+                    path.append((r, q))
+                    return path
+
+        return path
 
     def __str__(self):
         return "\n".join([" | ".join([str(c) for c in r]) for r in self.board])
 
+    def hexdigest(self):
+        return sha1(dumps(self.board)).hexdigest()
+
 #
 # === Testing the correctness of the implementation ===
-# 
+#
+
+def autoplay(engine_class, engine_class2, config, games):
+    score1 = 0
+    score2 = 0
+    name1 = engine_class.__name__
+    name2 = engine_class2.__name__
+
+    print("[i] === Auto-playing ===")
+    for i in range(games):
+        print(f"[i] Auto-playing game {i}")
+
+        b = HexBoardState(N, M)
+        B = HexBoard(b, 100, 100, 5, 10)
+
+        engine = engine_class(B, HexCellStatus.RED, config)
+        engine2 = engine_class2(B, HexCellStatus.BLUE, config)
+
+        while B.winner == None:
+            if B.current_player == HexCellStatus.RED:
+                engine.move()
+            else:
+                engine2.move()
+
+        print(f"[i] Game {i} won by player {B.winner}")
+        if B.winner[0] == HexCellStatus.RED:
+            score1 += 1
+        else:
+            score2 += 1
+
+    print()
+    print(f"[i] Final score {score1} ({name1}) - {score2} ({name2})")
+    print()
+
+"""
+Battles between engines (20 games per pair, 6x6 grid)
+
+=== Depth 1 ===
+( ㅅ ) ❯ ❯) python3 tema2.py TEST | grep "Final score"
+[i] Final score 4 (HexRandomEngine) - 6 (HexRandomEngine)
+[i] Final score 6 (HexDijkstraEngine) - 4 (HexDijkstraEngine)
+[i] Final score 5 (HexOptimizedDijkstraEngine) - 5 (HexOptimizedDijkstraEngine)
+[i] Final score 0 (HexRandomEngine) - 10 (HexDijkstraEngine)
+[i] Final score 0 (HexRandomEngine) - 10 (HexOptimizedDijkstraEngine)
+[i] Final score 10 (HexDijkstraEngine) - 0 (HexRandomEngine)
+[i] Final score 4 (HexDijkstraEngine) - 6 (HexOptimizedDijkstraEngine)
+[i] Final score 10 (HexOptimizedDijkstraEngine) - 0 (HexRandomEngine)
+[i] Final score 7 (HexOptimizedDijkstraEngine) - 3 (HexDijkstraEngine)
+
+Engine                     | Wins
+===========================|=====
+HexOptimizedDijkstraEngine |  4
+HexDijkstraEngine          |  2
+HexRandomEngine            |  0
+
+=== Depth 2 ===
+( ㅅ ) ❯ ❯) python3 tema2.py TEST | grep "Final score"
+[i] Final score 3 (HexRandomEngine) - 7 (HexRandomEngine)
+[i] Final score 6 (HexDijkstraEngine) - 4 (HexDijkstraEngine)
+[i] Final score 8 (HexOptimizedDijkstraEngine) - 2 (HexOptimizedDijkstraEngine)
+[i] Final score 0 (HexRandomEngine) - 10 (HexDijkstraEngine)
+[i] Final score 0 (HexRandomEngine) - 10 (HexOptimizedDijkstraEngine)
+[i] Final score 10 (HexDijkstraEngine) - 0 (HexRandomEngine)
+[i] Final score 3 (HexDijkstraEngine) - 7 (HexOptimizedDijkstraEngine)
+[i] Final score 10 (HexOptimizedDijkstraEngine) - 0 (HexRandomEngine)
+[i] Final score 9 (HexOptimizedDijkstraEngine) - 1 (HexDijkstraEngine)
+
+Engine                     | Wins
+===========================|=====
+HexOptimizedDijkstraEngine |  4
+HexDijkstraEngine          |  2
+HexRandomEngine            |  0
+
+As we can clearly see, the optimized version of the engine wins almost all the time.
+"""
 
 def testing():
     print("[i] Testing correctness")
     b = HexBoardState(4, 4)
-    
+    B = HexBoard(b, 100, 100, 5, 10)
+
     b.set(0, 2, HexCellStatus.RED)
     b.set(1, 1, HexCellStatus.RED)
     b.set(2, 2, HexCellStatus.RED)
@@ -197,14 +316,51 @@ def testing():
     
     b.set(1, 3, HexCellStatus.BLUE)
     print("[i] Check BLUE winner")
-    assert b.winner() == HexCellStatus.BLUE
+    assert b.winner()[0] == HexCellStatus.BLUE
 
     b.set(1, 3, HexCellStatus.FREE)
     b.set(1, 2, HexCellStatus.RED)
     print("[i] Check RED winner")
-    assert b.winner() == HexCellStatus.RED
+    assert b.winner()[0] == HexCellStatus.RED
 
-    print("[+] All tests passed.")
+    b = HexBoardState(6, 6)
+    B = HexBoard(b, 100, 100, 5, 10)
+
+    print("[i] Check Dijkstra")
+    conf = Configuration()
+    eng = HexDijkstraEngine(B, HexCellStatus.RED, conf)
+    
+    b.set(3, 0, HexCellStatus.RED)
+    b.set(4, 0, HexCellStatus.RED)
+    b.set(3, 1, HexCellStatus.RED)
+    b.set(1, 2, HexCellStatus.RED)
+    
+    b.set(2, 0, HexCellStatus.BLUE)
+    b.set(2, 1, HexCellStatus.BLUE)
+    b.set(2, 2, HexCellStatus.BLUE)
+    b.set(3, 2, HexCellStatus.BLUE)
+
+    assert eng.evaluate(HexCellStatus.RED, b, None) == -3
+    assert eng.dij(HexCellStatus.RED, b, reconstruct=True)[0] == 6
+    assert eng.dij(HexCellStatus.BLUE, b, reconstruct=True)[0] == 3
+
+    print("[+] All tests passed.\n")
+
+    config = Configuration()
+    config.depth1 = 1
+    config.depth2 = 1
+    config.algorithm = EngineAlgorithms.ALPHA_BETA
+
+    autoplay(HexRandomEngine, HexRandomEngine, config, 10)
+    autoplay(HexDijkstraEngine, HexDijkstraEngine, config, 10)
+    autoplay(HexOptimizedDijkstraEngine, HexOptimizedDijkstraEngine, config, 10)
+
+    autoplay(HexRandomEngine, HexDijkstraEngine, config, 10)
+    autoplay(HexRandomEngine, HexOptimizedDijkstraEngine, config, 10)
+    autoplay(HexDijkstraEngine, HexRandomEngine, config, 10)
+    autoplay(HexDijkstraEngine, HexOptimizedDijkstraEngine, config, 10)
+    autoplay(HexOptimizedDijkstraEngine, HexRandomEngine, config, 10)
+    autoplay(HexOptimizedDijkstraEngine, HexDijkstraEngine, config, 10)
 
 #
 # === Geometry helpers for drawing hexagons ===
@@ -259,6 +415,11 @@ class HexBoard:
         self.current_player = HexCellStatus.RED
         self.winner = None
 
+        self.move_timer = TicToc()
+        self.move_timer.tic()
+        self.player1_times = []
+        self.player2_times = []
+
     def draw(self):
         x, y, length = self.x_align, self.y_align, self.hexagon_length
 
@@ -267,7 +428,7 @@ class HexBoard:
             return
 
         if self.winner != None:
-            arcade.draw_text(f"{self.winner} won the game!", x, y + 70, arcade.color.BLACK, 18)
+            arcade.draw_text(f"{self.winner[0]} won the game!", x, y + 70, arcade.color.BLACK, 18)
 
         arcade.draw_text(f"Current player: {self.current_player}", x, y + 40, arcade.color.BLACK, 14)
 
@@ -284,16 +445,23 @@ class HexBoard:
             x_center_col, y_center_col = x_center_row, y_center_row
             for q, (cell, poly) in enumerate(zip(row, hexagons)):
                 zone = self.state.zone_of(r, q)
+                ghost_cell = self.state.ghost_board[r][q]
 
                 if cell != HexCellStatus.FREE:
                     color = arcade.color.RED if cell == HexCellStatus.RED else arcade.color.BLUE
                     arcade.draw_polygon_filled(poly, color)
+                elif ghost_cell != HexCellStatus.FREE:
+                    color = arcade.color.LIGHT_PINK if ghost_cell == HexCellStatus.LIGHT_RED else arcade.color.LIGHT_BLUE
+                    if ghost_cell == HexCellStatus.LIGHT_PURPLE:
+                        color = arcade.color.LIGHT_PASTEL_PURPLE
+                    
+                    arcade.draw_polygon_filled(poly, color)
 
-                if zone == HexBoardZone.TOP or zone == HexBoardZone.BOTTOM:
-                    arcade.draw_point(x_center_col, y_center_col, arcade.color.RED, 4)
-                elif zone == HexBoardZone.LEFT or zone == HexBoardZone.RIGHT:
-                    arcade.draw_point(x_center_col, y_center_col, arcade.color.BLUE, 4)
-
+                #if zone == HexBoardZone.TOP or zone == HexBoardZone.BOTTOM:
+                #    arcade.draw_point(x_center_col, y_center_col, arcade.color.RED, 4)
+                #elif zone == HexBoardZone.LEFT or zone == HexBoardZone.RIGHT:
+                #    arcade.draw_point(x_center_col, y_center_col, arcade.color.BLUE, 4)
+                
                 arcade.draw_polygon_outline(poly, arcade.color.BLACK, self.hexagon_border)
 
                 self.centers[r][q] = (x_center_col, y_center_col)
@@ -302,6 +470,30 @@ class HexBoard:
             x_center_row += x_coef
             y_center_row += y_coef
             hexagons = [translate_points(h, x_coef, y_coef) for h in hexagons]
+
+        hexagon = compute_hexagon(x, y, length)
+        hexagons = [hexagon]
+        displacement = length * np.sqrt(3)
+        for _ in range(self.state.m - 1):
+            hexagons.append(translate_points(hexagons[-1], displacement, 0))
+
+        x_coef, y_coef = compute_hexagon_below_coefs(length)
+        x_center_row, y_center_row = x, y      
+
+        for r, row in enumerate(self.state.board):
+            x_center_col, y_center_col = x_center_row, y_center_row
+            for q, (cell, poly) in enumerate(zip(row, hexagons)):
+                ghost_cell = self.state.ghost_board[r][q]
+
+                if self.state.ghost_board[r][q] == HexCellStatus.GOLDEN_BORDER:
+                    arcade.draw_polygon_outline(poly, arcade.color.GOLD, self.hexagon_border)
+
+                x_center_col += displacement
+
+            x_center_row += x_coef
+            y_center_row += y_coef
+            hexagons = [translate_points(h, x_coef, y_coef) for h in hexagons]
+
 
     def on_click(self, x, y):
         if self.winner != None:
@@ -326,13 +518,35 @@ class HexBoard:
     def set_cell(self, r, q):
         if self.state.get(r, q) == HexCellStatus.FREE:
             self.state.set(r, q, self.current_player)
+
+            t = self.move_timer.tocvalue()
+            self.move_timer.tic()
+
+            if self.current_player == HexCellStatus.RED:
+                self.player1_times.append(round(t, 2))
+            else:
+                self.player2_times.append(round(t, 2))
+
+            print(f"[i] Player {self.current_player} moved in {round(t, 2)}s")
+            print(self.state)
+
             self.winner = self.state.winner()
             if self.winner != None:
+                print(f"[i] Player {self.current_player} won the game!")
+                self.print_debug_state()
+                for wr, wq in self.winner[1]:
+                    self.state.ghost_board[wr][wq] = HexCellStatus.GOLDEN_BORDER
                 return (r, q)
 
             self.current_player = HexCellStatus.BLUE if self.current_player == HexCellStatus.RED else HexCellStatus.RED
             return (r, q)
         return None
+
+    def print_debug_state(self):
+        print(f"[i] Player RED times: min {min(self.player1_times)}s max {max(self.player1_times)}s mean {round(np.mean(self.player1_times), 2)}s median {np.median(self.player1_times)}s total {sum(self.player1_times)}s")
+        print(f"[i] Player BLUE times: min {min(self.player2_times)}s max {max(self.player2_times)}s mean {round(np.mean(self.player2_times), 2)}s median {np.median(self.player2_times)}s total {sum(self.player2_times)}s")
+        print(f"[i] Total gameplay: {sum(self.player1_times) + sum(self.player2_times)}s")
+
 
 #
 # === GUI helpers for creating buttons and input fields ===
@@ -340,7 +554,7 @@ class HexBoard:
 
 def createButtonClass(handler):
 
-    class MyButton(arcade.gui.UIFlatButton):
+    class MyButton(gui.UIFlatButton):
         def __init__(self, text, center_x, center_y, *args, width=220):
             super().__init__(
                 text,
@@ -367,6 +581,9 @@ def handle_reset(board, thread, obj):
 
     if obj.mode == GameMode.CvC:
         obj.reinit_threading()
+    
+    print()
+    print("[i] Game restarted")
 
 def handle_go(window, view_before_class, cleanup, *args):
     if cleanup != None:
@@ -374,12 +591,26 @@ def handle_go(window, view_before_class, cleanup, *args):
     view_before = view_before_class(*args)
     window.show_view(view_before)
 
+def handle_depth1(config, depth, label):
+    config.depth1 = depth
+    label.text = f"Red Bot (depth {depth})"
+
+def handle_depth2(config, depth, label):
+    config.depth2 = depth
+    label.text = f"Blue Bot (depth {depth})"
+
+def handle_debug(board):
+    board.print_debug_state()
+
 RestartButton = createButtonClass(handle_reset)
 GoButton = createButtonClass(handle_go)
+Depth1Button = createButtonClass(handle_depth1)
+Depth2Button = createButtonClass(handle_depth2)
+DebugButton = createButtonClass(handle_debug)
 
 def createToggleClass(handler):
 
-    class MyToggle(arcade.gui.UIToggle):
+    class MyToggle(gui.UIToggle):
         def __init__(self, center_x, center_y, *args, height=10):
                 super().__init__(center_x, center_y, value=False, height=height)
                 self.args = args
@@ -412,88 +643,166 @@ class EngineAlgorithms(Enum):
 class Configuration:
     def __init__(self):
         self.algorithm = EngineAlgorithms.MINI_MAX
-        self.engine = HexNaiveEngine
-        self.engine2 = HexDumbEngine
+        self.engine = HexOptimizedDijkstraEngine
+        self.engine2 = HexDijkstraEngine
+        self.depth1 = 1
+        self.depth2 = 1
 
 #
 # === Engine logic ===
 #
 
+def get_other_color(color):
+    if color == HexCellStatus.RED:
+        return HexCellStatus.BLUE
+    return HexCellStatus.RED
 
 class Minimax:
-    def __init__(self, color, board_state, evaluate, pruning = False):
+    def __init__(self, color, board_state, evaluate, available_moves, pruning = False):
         self.board_state = board_state
         self.evaluate = evaluate
+        self.available_moves = available_moves
         self.color = color
-        self.cnt = 0
         self.pruning = pruning
+        self.other_color = get_other_color(color)
 
-        if self.color == HexCellStatus.RED:
-            self.other_color = HexCellStatus.BLUE
-        else:
-            self.other_color = HexCellStatus.RED
+        self.node_cnt = 0
+        self.total_node_cnt = 0
 
-    def do(self, r, q, color):
+        self.state_cache = {}
+        self.winner_cache = {}
+
+    def do_move(self, r, q, color):
         self.board_state.set(r, q, color)
 
-    def __revert(self, r, q):
+    def revert_move(self, r, q):
         self.board_state.set(r, q, HexCellStatus.FREE)
 
     def best_move(self, max_depth):
-        self.cnt = 0
+        self.cache_hits = 0
         self.copy_board_state = self.board_state.clone()
-        return self.__dfs(None, 0, max_depth)
+        self.node_cnt = 0
 
-    def __max_move(self, a, b):
-        if a[1] > b[1]:
-            return a
-        return b
+        score, move = self.__dfs(0, max_depth, NEG_INF, POS_INF)
+        self.total_node_cnt += self.node_cnt
 
-    def __min_move(self, a, b):
-        if a[1] < b[1]:
-            return a
-        return b
+        print(f"[i] Engine {self.color} moved {move} with score estimation {score}.")
+        print(f"[i] Explored {self.node_cnt} nodes. ({self.cache_hits} cache hits)")
+        print(f"[i] Total nodes explored until now: {self.total_node_cnt}.")
 
-    def __dfs(self, move, level, max_depth, alpha = float("-inf"), beta = float("inf")):
-        cnt = self.cnt
-        self.cnt += 1
+        return move
 
-        #print(f"[minimax] {cnt} Last move: {move} on level {level}")
+    def cached_evaluate(self, color, copy_board_state, winner, level):
+        """
+        On larger boards the cache is useful only when using a large enough depth.
+        """
+        
+        state_hexdigest = copy_board_state.hexdigest()
+        if state_hexdigest in self.state_cache:
+            self.cache_hits += 1
+            return self.state_cache[state_hexdigest]
+        value = self.evaluate(color, copy_board_state, winner)
+        self.state_cache[state_hexdigest] = value
+        return value
+
+    def cached_winner(self, copy_board_state):
+        state_hexdigest = copy_board_state.hexdigest()
+        if state_hexdigest in self.winner_cache:
+            self.cache_hits += 1
+            return self.winner_cache[state_hexdigest]
+        winner = self.copy_board_state.winner()
+        winner = winner[0] if winner != None else None
+        self.winner_cache[state_hexdigest] = winner
+        return winner
+
+    def __dfs(self, level, max_depth, alpha, beta):
+        self.node_cnt += 1
+        node_id = self.node_cnt
+
+        #print(f"[DEBUG] Arrived at node {self.node_cnt} depth {level}")
         #print(self.copy_board_state)
 
-        winner = self.copy_board_state.winner()
-        if winner != None:
-            #print(f"[minimax] {cnt} Found leaf {move, self.evaluate(self.color, self.copy_board_state, winner)}")
-            return move, self.evaluate(self.color, self.copy_board_state, winner)
+        is_max_player = level % 2 == 0
+        is_root = level == 0
 
-        if level == max_depth:
-            return move, self.evaluate(self.color, self.copy_board_state, self.copy_board_state.winner())
-        func = self.__max_move if level % 2 == 0 else self.__min_move
-        to_color = self.color if level % 2 == 0 else self.other_color
-        best = (None, float("-inf")) if level % 2 == 0 else (None, float("inf"))
+        # check if this is a winning position (for any player)
+        winner = self.cached_winner(self.copy_board_state)
 
-        for r, q in self.copy_board_state.available():
-            self.do(r, q, to_color)
-            tree_value = self.__dfs((r, q) if move == None else move, level + 1, max_depth, alpha, beta)
-            best = func(best, tree_value)
-            self.__revert(r, q)
+        # if there is a winner or we reached maximal depth
+        # return the evaluation of the current state
+        if winner != None or level == max_depth:
+            value = self.cached_evaluate(self.color, self.copy_board_state, winner, level)
+            if value == WIN_VALUE:
+                value -= level
+            elif value == LOSE_VALUE:
+                value += level
 
-            if self.pruning and level % 2 == 0:
-                if best[1] >= beta:
-                    return best
-                
-                if best[1] > alpha:
-                    alpha = best[1]
-            elif self.pruning:
-                if best[1] <= alpha:
-                    return best
+            #print(f"[DEBUG] ({self.node_cnt}) Evaluated {value}")      
+            return value, None
 
-                if best[1] < beta:
-                    beta = best[1]
+        to_color = self.color if is_max_player else self.other_color
+        best = NEG_INF if is_max_player else POS_INF
+        best_moves = []
 
+        # Generate all possible successor states and order them
+        """Performing worse than without ordering"""
+        moves_and_scores = []
+        for r, q in self.available_moves(to_color, self.copy_board_state):
+            self.do_move(r, q, to_color)
+        
+            winner = self.cached_winner(self.copy_board_state)
+            score = self.cached_evaluate(self.color, self.copy_board_state, winner, level)
+            moves_and_scores.append(((r, q), score))
+        
+            self.revert_move(r, q)
+        moves_and_scores.sort(key = lambda x: x[1], reverse = is_max_player)
 
-        #print(f"[minimax] {cnt} Best on level {level} = {best}")
-        return best
+        #print(f"[DEBUG] ({self.node_cnt}) Expanding")
+        for (r, q), _ in moves_and_scores:
+            self.do_move(r, q, to_color)
+            tree_value, _ = self.__dfs(level + 1, max_depth, alpha, beta)
+            self.revert_move(r, q)
+
+            #print(f"[DEBUG] ({node_id}) Move {(r, q)} returned tree value {tree_value}")
+            #print(f"[DEBUG] ({node_id}) Current alpha = {alpha} beta = {beta}")
+            
+            if is_max_player:
+                if tree_value > best:
+                    #print(f"[DEBUG] ({node_id}) Update MAX {best} < {tree_value}")
+                    best = tree_value
+                    if is_root:
+                        #print(f"[DEBUG] ({node_id}) Best move {(r, q)}")
+                        best_moves = [(r, q)]
+                elif is_root and tree_value == best:
+                    best_moves.append((r, q))
+                    #print(f"[DEBUG] ({node_id}) Another good MAX move {best_moves}") 
+
+                if self.pruning:
+                    alpha = max(alpha, best)
+                    if alpha > beta:
+                        #print(f"[DEBUG] ({node_id}) Prunning MAX! {alpha} >= {beta}")
+                        break
+            else:
+                if tree_value < best:
+                    #print(f"[DEBUG] ({node_id}) Update MIN {best} > {tree_value}")
+                    best = tree_value
+                    if is_root:
+                        #print(f"[DEBUG] ({node_id}) Best move {(r, q)}")
+                        best_moves = [(r, q)]
+                elif is_root and tree_value == best:
+                    best_moves.append((r, q))
+                    #print(f"[DEBUG] ({node_id}) Another good MIN move {best_moves}")
+
+                if self.pruning:
+                    beta = min(beta, best)
+                    if beta < alpha:
+                        #print(f"[DEBUG] ({node_id}) Prunning MIN! {beta} <= {alpha}")
+                        break
+
+        if is_root:
+            print(f"[i] ({node_id}) Found possible best moves: {best_moves} with score {best}, alpha = {alpha}, beta = {beta}.")
+
+        return best, choice(best_moves) if is_root else None
 
 class GameMode(Enum):
     PvP = 0
@@ -506,7 +815,7 @@ class HexDumbEngine:
     def __init__(self, board, color, config):
         self.board = board
         self.config = config
-        
+
     def move(self):
         print("[i] Engine is computing a move...")
 
@@ -515,6 +824,23 @@ class HexDumbEngine:
             if self.board.state.get(r, q) == HexCellStatus.FREE:
                 found = (r, q)
                 break
+        self.board.set_cell(r, q)
+
+        print(f"[i] Engine moved {found}")
+
+class HexRandomEngine:
+    """Color random hexagons.
+    """
+    def __init__(self, board, color, config):
+        self.board = board
+        self.config = config
+        
+    def move(self):
+        print("[i] Engine is computing a move...")
+
+        available = list(self.board.state.available())
+        found = choice(available)
+        r, q = found
         self.board.set_cell(r, q)
 
         print(f"[i] Engine moved {found}")
@@ -531,9 +857,12 @@ class HexNaiveEngine:
             color, 
             self.board.state, 
             self.evaluate,
+            self.available_moves,
             pruning=self.config.algorithm == EngineAlgorithms.ALPHA_BETA,
         )
 
+    def available_moves(self, color, board_state):
+        return board_state.available()
 
     def evaluate(self, color, board_state, winner):
         if winner == None:
@@ -548,20 +877,291 @@ class HexNaiveEngine:
         self.board.set_cell(found[0][0], found[0][1])
         print(f"[i] Engine moved {found}")
 
+class HexDijkstraEngine:
+    """Use Dijkstra to evaluate the shortest paths to a winning position.
+
+    Each player wants to create a contiguous path from one side of the board to another.
+    We aim to create this path as fast as possible so we should follow the shortest one.
+    Therefore, using Dijkstra we can compute the shortest possible path for both players.
+    We consider the cost of a free cell to be 1 and the cost of an occupied cell (by us) to 
+    be 0. 
+    The value of a given board would be: opponent's shortest path - our shortest path
+    This value is increasing as we are getting closer to victory and decreasing as our 
+    opponent is getting closer to victory.
+    """
+
+    def __init__(self, board, color, config):
+        self.board = board
+        self.config = config
+        self.color = color
+        self.other_color = get_other_color(color)
+
+        self.predictor = Minimax(
+            color, 
+            self.board.state, 
+            self.evaluate,
+            self.available_moves,
+            pruning=self.config.algorithm == EngineAlgorithms.ALPHA_BETA,
+        )
+
+        self.start_pos_red = list(product([0], range(self.board.state.m)))
+        self.end_pos_red = list(product([self.board.state.n-1], range(self.board.state.m)))
+
+        self.start_pos_blue = list(product(range(self.board.state.n), [0]))
+        self.end_pos_blue = list(product(range(self.board.state.n), [self.board.state.m-1]))
+
+        self.turn = 0 if color == HexCellStatus.RED else 1
+        self.centrals = set()
+
+        a = board.state.n // 2
+        b = board.state.m // 2
+        for direction in HexDirections:
+            p = tuple(map(add, (a, b), direction.value))
+            self.centrals.add(p)
+
+
+    def dij(self, color, board_state, reconstruct = False):
+        other_color = get_other_color(color)
+        if color == HexCellStatus.RED:
+            start_pos = self.start_pos_red
+            end_pos = self.end_pos_red
+        else:
+            start_pos = self.start_pos_blue
+            end_pos = self.end_pos_blue
+
+        queue = []
+
+        # from start to end
+        start_costs = [[POS_INF for _ in range(board_state.m)] for _ in range(board_state.n)]
+        start_prev = [[(None,None) for _ in range(board_state.m)] for _ in range(board_state.n)]
+        for r, q in start_pos:
+            cost = 1
+            v = board_state.get(r, q)
+            if v == color:
+                cost = 0
+            elif v != HexCellStatus.FREE:
+                continue
+
+            start_costs[r][q] = cost
+            heappush(queue, (cost, (r, q)))
+        
+        visited = set()
+        while len(queue):
+            curr_cost, p = heappop(queue)
+            r, q = p
+            if p in visited: continue
+            visited.add(p)
+
+            for next_p in board_state.neighbours_of(r, q):
+                next_r, next_q = next_p
+                v = board_state.get(next_r, next_q)
+                if v == other_color:
+                    continue
+
+                if next_p in visited: continue
+                next_r, next_q = next_p
+
+                arc_cost = 1
+                if v == color:
+                    arc_cost = 0
+
+                if curr_cost + arc_cost < start_costs[next_r][next_q]:
+                    start_costs[next_r][next_q] = curr_cost + arc_cost
+                    start_prev[next_r][next_q] = (r, q)
+                    heappush(queue, (start_costs[next_r][next_q], (next_r, next_q)))
+
+        # from end to start
+        end_costs = [[POS_INF for _ in range(board_state.m)] for _ in range(board_state.n)]
+        end_prev = [[(None,None) for _ in range(board_state.m)] for _ in range(board_state.n)]
+        for r, q in end_pos:
+            cost = 1
+            v = board_state.get(r, q)
+            if v == color:
+                cost = 0
+            elif v != HexCellStatus.FREE:
+                continue
+
+            end_costs[r][q] = cost
+            heappush(queue, (cost, (r, q)))
+
+        visited = set()
+        while len(queue):
+            curr_cost, p = heappop(queue)
+            r, q = p
+            if p in visited: continue
+            visited.add(p)
+
+            for next_p in board_state.neighbours_of(r, q):
+                next_r, next_q = next_p
+                v = board_state.get(next_r, next_q)
+                if v == other_color:
+                    continue
+
+                if next_p in visited: continue
+
+                arc_cost = 1
+                if v == color:
+                    arc_cost = 0
+
+                if curr_cost + arc_cost < end_costs[next_r][next_q]:
+                    end_costs[next_r][next_q] = curr_cost + arc_cost
+                    end_prev[next_r][next_q] = (r, q)
+                    heappush(queue, (end_costs[next_r][next_q], (next_r, next_q)))
+
+        best = POS_INF
+        best_pos = None
+        for r in range(board_state.n):
+            for q in range(board_state.m):
+                new_cost = start_costs[r][q] + end_costs[r][q]
+                if best > new_cost:
+                    best = new_cost
+                    best_pos = (r, q) 
+
+        start_path = []
+        end_path = []
+        the_path = []
+
+        if reconstruct:
+            cr, cq = best_pos
+            while cr != None:
+                start_path.append((cr, cq))
+                cr, cq = start_prev[cr][cq]       
+            cr, cq = best_pos
+            while cr != None:
+                end_path.append((cr, cq))
+                cr, cq = end_prev[cr][cq]
+            the_path = start_path + end_path 
+    
+        return best, the_path 
+
+    def available_moves(self, color, board_state):
+        moves = board_state.available()
+        if self.turn < 2:
+            moves = filter(lambda m: m in self.centrals, moves)
+        return moves
+
+    def evaluate(self, color, board_state, winner):
+        if winner != None and winner == color:
+            return WIN_VALUE
+        elif winner != None:
+            return LOSE_VALUE
+
+        # __bfs returns the cost ie. the length of the shortest path to victory
+        # score: enemy cost - my cost. the bigger, the better
+        return self.dij(get_other_color(color), board_state)[0] - self.dij(color, board_state)[0]
+
+    def move(self):
+        print("[i] Engine is computing a move...")
+        depth = self.config.depth1 if self.color == HexCellStatus.RED else self.config.depth2
+        found = self.predictor.best_move(depth)
+        self.board.set_cell(found[0], found[1])
+
+        print(f"[i] Engine moved {found}")
+        self.turn += 2
+        if self.board.state.winner() != None:
+            return
+
+        for r in range(self.board.state.n):
+            for q in range(self.board.state.m):
+                self.board.state.ghost_board[r][q] = HexCellStatus.FREE
+
+        for r, q in self.dij(HexCellStatus.BLUE, self.board.state, reconstruct=True)[1]:
+            if self.board.state.get(r, q) == HexCellStatus.FREE:
+                self.board.state.ghost_board[r][q] = HexCellStatus.LIGHT_BLUE
+        for r, q in self.dij(HexCellStatus.RED, self.board.state, reconstruct=True)[1]:
+            if self.board.state.get(r, q) == HexCellStatus.FREE:
+                if self.board.state.ghost_board[r][q] == HexCellStatus.FREE:
+                    self.board.state.ghost_board[r][q] = HexCellStatus.LIGHT_RED
+                elif self.board.state.ghost_board[r][q] == HexCellStatus.LIGHT_BLUE:
+                    self.board.state.ghost_board[r][q] = HexCellStatus.LIGHT_PURPLE
+
+class HexOptimizedDijkstraEngine(HexDijkstraEngine):
+    """Use Dijkstra to find the shortest path but also prioritize bridges.
+
+    Consider the following to be 4 hexagonal spaces on our board:
+        A
+       / \\
+       B  C
+       \\ / 
+         D
+
+    If positions A and D are occupied by us, we consider this to be a bridge.
+    If the opponent occupies B, we can occupy C and still have a connected path.
+    The same is true for C.
+
+    We assign score values to the following situations:
+    - we have a bridge (good)
+    - we have the possibility to make a bridge (good)
+    - we blocked a possible bridge of our opponent (good)
+    - our opponent has a bridge (bad)
+    - our opponent has the possibility of making a bridge (bad)
+    - our opponent blocked one of our possible bridges (bad)
+
+    The values chosen are arbitrary and tweaked until I've found the engine was performing
+    well enough.
+    """
+
+    def __init__(self, board, color, config):
+        super().__init__(board, color, config)
+
+        self.second_neighbours_dir = []
+        dirs = list(HexDirections)
+        for i in range(len(dirs)):
+            new_dir = tuple(map(add, dirs[i].value, dirs[(i+1)%len(dirs)].value))
+            self.second_neighbours_dir.append(new_dir)
+        assert len(self.second_neighbours_dir) == 6
+
+    def second_neighbours_of(self, r, q):
+        for direction in self.second_neighbours_dir:
+            new_r, new_q = tuple(map(add, (r, q), direction))
+            if self.board.state.valid_cell(new_r, new_q):
+                yield new_r, new_q
+
+    def evaluate(self, color, board_state, winner):
+        value = super().evaluate(color, board_state, winner)
+        if value == WIN_VALUE or value == LOSE_VALUE:
+            return value
+
+        value *= 1000
+
+        other_color = get_other_color(color)
+        to_add = 0
+        for r in range(board_state.n):
+            for q in range(board_state.m):
+                v = board_state.get(r, q)
+                if v == HexCellStatus.FREE:
+                    continue
+
+                for neigh_r, neigh_q in self.second_neighbours_of(r, q):
+                    neigh_v = board_state.get(neigh_r, neigh_q)
+
+                    if v == color and neigh_v == color:
+                        to_add += 10
+                    elif v == color and neigh_v == other_color:
+                        to_add -=  5
+                    elif v == color and neigh_v == HexCellStatus.FREE:
+                        to_add +=  2
+                    elif v == other_color and neigh_v == other_color:
+                        to_add -= 10
+                    elif v == other_color and neigh_v == color:
+                        to_add +=  5
+                    elif v == other_color and neigh_v == HexCellStatus.FREE:
+                        to_add -= 2
+        to_add //= 6
+
+        return value + to_add
+
 def computer_play(obj, board, engine, engine2):
     print("[i] Computers should play")
     sleep(ENGINE_DELAY)
     while board.winner == None and obj.should_stop == False:
         print(f"[i] Current player {board.current_player}")
         board.thinking = True
-        t = TicToc()
-        t.tic()
         if board.current_player == HexCellStatus.RED:
             engine.move()
         else:
             engine2.move()
         board.thinking = False
-        t.toc()
         sleep(ENGINE_DELAY)
     print("[+] Computers done.")
 
@@ -577,7 +1177,7 @@ class GameView(arcade.View):
 
         self.hs = HexBoardState(N, M)
         self.hb = HexBoard(self.hs, SCREEN_WIDTH, SCREEN_HEIGHT, HEXAGON_LENGTH, HEXAGON_BORDER)
-        self.ui_manager = arcade.gui.UIManager()
+        self.ui_manager = gui.UIManager()
 
         self.mode = mode
 
@@ -589,6 +1189,8 @@ class GameView(arcade.View):
         self.engine2 = engine_class2(self.hb, HexCellStatus.BLUE, config) if engine_class2 != None else None
 
         self.reinit_threading()
+
+        print("[i] New game started")
 
     def reinit_threading(self):
         self.should_stop = False
@@ -608,6 +1210,11 @@ class GameView(arcade.View):
     def on_draw(self):
         arcade.start_render()
         arcade.draw_text(f"{self.mode}", 20, SCREEN_HEIGHT - 30, arcade.color.BLACK, 16)
+        if self.mode == GameMode.PvC:
+            arcade.draw_text(f"Player - Computer ({self.config.depth2})", 20, SCREEN_HEIGHT - 50, arcade.color.BLACK, 15)
+        elif self.mode == GameMode.CvC:
+            arcade.draw_text(f"Computer ({self.config.depth1}) - Computer ({self.config.depth2})", 20, SCREEN_HEIGHT - 50, arcade.color.BLACK, 15)
+
         self.hb.draw()
 
     def on_mouse_press(self, x, y, button, modifiers):
@@ -657,10 +1264,19 @@ class GameView(arcade.View):
             )
         )
 
+        self.ui_manager.add_ui_element(
+            DebugButton(
+                "Debug",
+                self.hb.x_align + self.hb.total_width // 2, 
+                self.hb.y_align - self.hb.total_height - 100, 
+                self.hb, 
+            )
+        )
+
 class MenuView(arcade.View):
     def __init__(self, config):
         super().__init__()
-        self.ui_manager = arcade.gui.UIManager()
+        self.ui_manager = gui.UIManager()
         self.x = SCREEN_WIDTH // 2
         self.y = SCREEN_HEIGHT - (0.15 * SCREEN_HEIGHT)
         self.config = config
@@ -741,7 +1357,7 @@ class MenuView(arcade.View):
 class SettingsView(arcade.View):
     def __init__(self, config):
         super().__init__()
-        self.ui_manager = arcade.gui.UIManager()
+        self.ui_manager = gui.UIManager()
         self.x = SCREEN_WIDTH // 2
         self.y = SCREEN_HEIGHT - (0.15 * SCREEN_HEIGHT)
         self.config = config
@@ -761,7 +1377,7 @@ class SettingsView(arcade.View):
     def setup(self):
         self.ui_manager.purge_ui_elements()
 
-        label1 = arcade.gui.UILabel(
+        label1 = gui.UILabel(
             "Mini-Max" if self.config.algorithm == EngineAlgorithms.MINI_MAX else "Alpha-Beta",
             self.x - 50,
             self.y - 50,
@@ -776,6 +1392,90 @@ class SettingsView(arcade.View):
                 self.config,
                 label1,
                 height=25,
+            )
+        )
+
+        label_bot1 = gui.UILabel(
+            f"Red Bot (depth {self.config.depth1})",
+            self.x - 210,
+            self.y - 100,
+            width=380,
+        )
+        self.ui_manager.add_ui_element(label_bot1)
+
+        self.ui_manager.add_ui_element(
+            Depth1Button(
+                "Easy",
+                self.x,
+                self.y - 100,
+                self.config,
+                1,
+                label_bot1,
+                width=120,
+            )
+        )
+        self.ui_manager.add_ui_element(
+            Depth1Button(
+                "Medium",
+                self.x + 130,
+                self.y - 100,
+                self.config,
+                2,
+                label_bot1,
+                width=120,
+            )
+        )
+        self.ui_manager.add_ui_element(
+            Depth1Button(
+                "Hard",
+                self.x + 260,
+                self.y - 100,
+                self.config,
+                3,
+                label_bot1,
+                width=120,
+            )
+        )
+
+        label_bot2 = gui.UILabel(
+            f"Blue Bot (depth {self.config.depth2})",
+            self.x - 210,
+            self.y - 155,
+            width=380,
+        )
+        self.ui_manager.add_ui_element(label_bot2)
+
+        self.ui_manager.add_ui_element(
+            Depth2Button(
+                "Easy",
+                self.x,
+                self.y - 155,
+                self.config,
+                1,
+                label_bot2,
+                width=120,
+            )
+        )
+        self.ui_manager.add_ui_element(
+            Depth2Button(
+                "Medium",
+                self.x + 130,
+                self.y - 155,
+                self.config,
+                2,
+                label_bot2,
+                width=120,
+            )
+        )
+        self.ui_manager.add_ui_element(
+            Depth2Button(
+                "Hard",
+                self.x + 260,
+                self.y - 155,
+                self.config,
+                3,
+                label_bot2,
+                width=120,
             )
         )
 
@@ -803,28 +1503,32 @@ class MainWindow(arcade.Window):
 
 SCREEN_WIDTH = 900
 SCREEN_HEIGHT = 700
-SCREEN_TITLE = "Hex Game"
+SCREEN_TITLE = "Hex Game - Proiect IA - Mihail Feraru 242"
 
 HEXAGON_LENGTH = 20
 HEXAGON_BORDER = 3
-N = 3
-M = 3
+N = 6
+M = 6
 
+assert M == N
 assert N >= 2 and M >= 2
 assert N <= 20 and M <= 20
 
-ENGINE_DELAY = 2
+ENGINE_DELAY = 0.25
 
 #
 # === Main ===
 #
 
 def main():
+    if len(argv) >= 2 and argv[1] == "TEST":
+        testing()
+        return
+
     config = Configuration()
     mainWindow = MainWindow()
     menuView = MenuView(config)
     mainWindow.show_view(menuView)
     arcade.run()
 
-testing()
 main()
